@@ -1,6 +1,6 @@
 """
 ADAPT-SQL Batch Processing Page
-Process multiple queries and display detailed results
+Process multiple queries and display detailed results with all tabs
 """
 import streamlit as st
 import json
@@ -68,149 +68,322 @@ def get_foreign_keys_from_sqlite(db_path: str) -> list:
         return []
 
 
+def display_complexity_badge(complexity: str):
+    """Display complexity with color badge"""
+    if complexity == "EASY":
+        st.success(f"🟢 {complexity}")
+    elif complexity == "NON_NESTED_COMPLEX":
+        st.warning(f"🟡 {complexity}")
+    else:
+        st.error(f"🔴 {complexity}")
+
+
+def display_validation_badge(is_valid: bool, validation_score: float):
+    """Display validation status badge"""
+    if is_valid:
+        st.success(f"✅ Valid SQL (Score: {validation_score:.2f})")
+    else:
+        st.error(f"❌ Invalid SQL (Score: {validation_score:.2f})")
+
+
+def display_schema_tab(result: dict):
+    """Display schema linking results"""
+    st.markdown("### Schema Linking")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Tables", len(result['step1']['schema_links']['tables']))
+    with col2:
+        total_cols = sum(len(cols) for cols in result['step1']['schema_links']['columns'].values())
+        st.metric("Columns", total_cols)
+    with col3:
+        st.metric("Foreign Keys", len(result['step1']['schema_links']['foreign_keys']))
+    
+    st.markdown("**Relevant Tables:**")
+    for table in sorted(result['step1']['schema_links']['tables']):
+        st.success(f"📊 {table}")
+    
+    # Show columns per table
+    st.markdown("**Columns per Table:**")
+    for table, cols in sorted(result['step1']['schema_links']['columns'].items()):
+        if cols:
+            with st.expander(f"📋 {table} ({len(cols)} columns)"):
+                for col in sorted(cols):
+                    st.write(f"  • {col}")
+    
+    # Show foreign keys
+    if result['step1']['schema_links']['foreign_keys']:
+        st.markdown("**Foreign Key Relationships:**")
+        for fk in result['step1']['schema_links']['foreign_keys']:
+            st.info(f"🔗 {fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}")
+
+
+def display_complexity_tab(result: dict):
+    """Display complexity classification results"""
+    st.markdown("### Complexity Classification")
+    display_complexity_badge(result['step2']['complexity_class'].value)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"• Tables: {len(result['step2']['required_tables'])}")
+        st.write(f"• JOINs: {'✅' if result['step2']['needs_joins'] else '❌'}")
+        st.write(f"• Subqueries: {'✅' if result['step2']['needs_subqueries'] else '❌'}")
+    with col2:
+        if result['step2']['aggregations']:
+            st.write(f"• Aggregations: {', '.join(result['step2']['aggregations'])}")
+        st.write(f"• GROUP BY: {'✅' if result['step2']['has_grouping'] else '❌'}")
+        st.write(f"• ORDER BY: {'✅' if result['step2']['has_ordering'] else '❌'}")
+    
+    if result['step2'].get('sub_questions'):
+        st.markdown("**Sub-questions:**")
+        for i, sq in enumerate(result['step2']['sub_questions'], 1):
+            st.info(f"{i}. {sq}")
+    
+    st.markdown("**Preliminary SQL:**")
+    st.code(result['step3']['predicted_sql'], language='sql')
+
+
+def display_examples_tab(result: dict):
+    """Display similar examples"""
+    st.markdown("### Similar Examples")
+    st.metric("Found", result['step4']['total_found'])
+    
+    for i, ex in enumerate(result['step4']['similar_examples'][:5], 1):
+        score = ex.get('similarity_score', 0)
+        color = "🟢" if score >= 0.8 else "🟡" if score >= 0.6 else "🔴"
+        
+        with st.expander(f"{color} {i}. {ex.get('question', '')[:60]}... ({score:.3f})"):
+            st.markdown(f"**Database:** {ex.get('db_id', 'N/A')}")
+            st.markdown(f"**Question:** {ex.get('question', '')}")
+            st.markdown(f"**Similarity Score:** {score:.4f}")
+            st.code(ex.get('query', ''), language='sql')
+
+
+def display_routing_tab(result: dict):
+    """Display routing strategy"""
+    st.markdown("### Routing Strategy")
+    strategy = result['step5']['strategy'].value
+    st.success(f"🎯 {strategy}")
+    st.info(result['step5']['description'])
+    
+    # Show strategy details
+    st.markdown("**Strategy Rationale:**")
+    complexity = result['step2']['complexity_class'].value
+    
+    if complexity == "EASY":
+        st.markdown("""
+        - **Simple Few-Shot Generation** selected for EASY queries
+        - Uses 3-5 similar examples from vector store
+        - Single LLM call with few-shot prompt
+        - Direct SQL generation
+        """)
+    elif complexity == "NON_NESTED_COMPLEX":
+        st.markdown("""
+        - **Intermediate Representation** selected for NON_NESTED_COMPLEX queries
+        - Generates intermediate representation first
+        - Breaks down into logical steps
+        - Then translates to SQL
+        """)
+    else:
+        st.markdown("""
+        - **Decomposed Generation** selected for NESTED_COMPLEX queries
+        - Identifies and processes sub-questions
+        - Generates SQL for each sub-question
+        - Composes final SQL from sub-queries
+        """)
+
+
+def display_sql_tab(result: dict, example: dict):
+    """Display generated SQL"""
+    st.markdown("### Generated SQL")
+    
+    # Display based on generation method
+    if result.get('step6a'):
+        st.markdown("**Method:** Simple Few-Shot (6a)")
+        st.code(result['step6a']['generated_sql'], language='sql')
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            conf = result['step6a']['confidence']
+            if conf >= 0.8:
+                st.success(f"Confidence: {conf:.1%}")
+            elif conf >= 0.6:
+                st.warning(f"Confidence: {conf:.1%}")
+            else:
+                st.error(f"Confidence: {conf:.1%}")
+        with col2:
+            st.metric("Examples Used", result['step6a']['examples_used'])
+    
+    elif result.get('step6b'):
+        st.markdown("**Method:** Intermediate Representation (6b)")
+        
+        with st.expander("🔍 NatSQL Intermediate"):
+            st.code(result['step6b']['natsql_intermediate'], language='text')
+        
+        st.markdown("**Generated SQL:**")
+        st.code(result['step6b']['generated_sql'], language='sql')
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            conf = result['step6b']['confidence']
+            if conf >= 0.8:
+                st.success(f"Confidence: {conf:.1%}")
+            elif conf >= 0.6:
+                st.warning(f"Confidence: {conf:.1%}")
+            else:
+                st.error(f"Confidence: {conf:.1%}")
+        with col2:
+            st.metric("Examples Used", result['step6b']['examples_used'])
+    
+    elif result.get('step6c'):
+        st.markdown("**Method:** Decomposed Generation (6c)")
+        
+        if result['step6c']['sub_sql_list']:
+            st.markdown("**Sub-queries:**")
+            for i, sub_info in enumerate(result['step6c']['sub_sql_list'], 1):
+                with st.expander(f"Sub-query {i}: {sub_info['sub_question'][:40]}... [{sub_info['complexity']}]"):
+                    st.markdown(f"**Question:** {sub_info['sub_question']}")
+                    st.code(sub_info['sql'], language='sql')
+        
+        with st.expander("🔍 NatSQL Intermediate with Sub-queries"):
+            st.code(result['step6c']['natsql_intermediate'], language='text')
+        
+        st.markdown("**Final SQL:**")
+        st.code(result['step6c']['generated_sql'], language='sql')
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            conf = result['step6c']['confidence']
+            if conf >= 0.75:
+                st.success(f"Confidence: {conf:.1%}")
+            elif conf >= 0.55:
+                st.warning(f"Confidence: {conf:.1%}")
+            else:
+                st.error(f"Confidence: {conf:.1%}")
+        with col2:
+            st.metric("Examples Used", result['step6c']['examples_used'])
+        with col3:
+            st.metric("Sub-queries", len(result['step6c']['sub_sql_list']))
+    
+    else:
+        st.warning("⚠️ No SQL generated")
+    
+    # Compare with ground truth
+    if 'query' in example:
+        st.markdown("---")
+        st.markdown("**Compare with Ground Truth:**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("*Generated:*")
+            generated = (result.get('step6a') or result.get('step6b') or result.get('step6c') or {}).get('generated_sql', 'N/A')
+            st.code(generated, language='sql')
+        with col2:
+            st.markdown("*Ground Truth:*")
+            st.code(example['query'], language='sql')
+
+
+def display_validation_tab(result: dict):
+    """Display validation results"""
+    st.markdown("### SQL Validation (Step 7)")
+    
+    if result.get('step7'):
+        validation = result['step7']
+        
+        # Overall status
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            display_validation_badge(validation['is_valid'], validation['validation_score'])
+        with col2:
+            st.metric("Errors", len(validation['errors']))
+        with col3:
+            st.metric("Warnings", len(validation['warnings']))
+        
+        st.markdown("---")
+        
+        # Errors section
+        if validation['errors']:
+            st.markdown("### ❌ Errors")
+            for i, error in enumerate(validation['errors'], 1):
+                severity_color = {
+                    'CRITICAL': '🔴',
+                    'HIGH': '🟠',
+                    'MEDIUM': '🟡',
+                    'LOW': '🟢'
+                }.get(error['severity'], '⚪')
+                
+                with st.expander(f"{severity_color} Error {i}: {error['type']} [{error['severity']}]", expanded=True):
+                    st.error(error['message'])
+                    
+                    if 'table' in error:
+                        st.write(f"**Table:** `{error['table']}`")
+                    if 'column' in error:
+                        st.write(f"**Column:** `{error['column']}`")
+        else:
+            st.success("✅ No errors found!")
+        
+        st.markdown("---")
+        
+        # Warnings section
+        if validation['warnings']:
+            st.markdown("### ⚠️ Warnings")
+            for i, warning in enumerate(validation['warnings'], 1):
+                severity_color = {
+                    'MEDIUM': '🟡',
+                    'LOW': '🟢'
+                }.get(warning['severity'], '⚪')
+                
+                with st.expander(f"{severity_color} Warning {i}: {warning['type']} [{warning['severity']}]"):
+                    st.warning(warning['message'])
+                    
+                    if 'table' in warning:
+                        st.write(f"**Table:** `{warning['table']}`")
+        else:
+            st.info("No warnings")
+        
+        st.markdown("---")
+        
+        # Suggestions section
+        if validation['suggestions']:
+            st.markdown("### 💡 Suggestions")
+            for i, suggestion in enumerate(validation['suggestions'], 1):
+                st.info(f"{i}. {suggestion}")
+        
+        # Full validation reasoning
+        with st.expander("📋 Full Validation Report"):
+            st.text(validation['reasoning'])
+    
+    else:
+        st.warning("⚠️ Validation not performed")
+
+
 def display_query_details(idx: int, example: dict, result: dict):
-    """Display detailed results for a single query"""
+    """Display detailed results for a single query with all tabs"""
     with st.expander(f"🔍 Query #{idx + 1}: {example['question'][:80]}...", expanded=False):
         st.markdown(f"**Database:** `{example['db_id']}`")
         st.markdown(f"**Question:** {example['question']}")
         
-        # Create tabs for different aspects
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📊 Summary", "🔗 Schema", "🎯 SQL", "✅ Validation", "📋 Full Details"
+        # Create tabs matching app.py
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📊 Schema", "🔍 Complexity", "📎 Examples", "🔀 Route", "✨ SQL", "✅ Validation"
         ])
         
         with tab1:
-            # Summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                complexity = result['step2']['complexity_class'].value
-                if complexity == "EASY":
-                    st.success(f"🟢 {complexity}")
-                elif complexity == "NON_NESTED_COMPLEX":
-                    st.warning(f"🟡 {complexity}")
-                else:
-                    st.error(f"🔴 {complexity}")
-            
-            with col2:
-                st.metric("Tables", len(result['step1']['schema_links']['tables']))
-            
-            with col3:
-                strategy = result['step5']['strategy'].value.replace('_', ' ')
-                st.info(f"Strategy: {strategy}")
-            
-            with col4:
-                if result.get('step7'):
-                    val_score = result['step7']['validation_score']
-                    if result['step7']['is_valid']:
-                        st.success(f"✅ Valid ({val_score:.2f})")
-                    else:
-                        st.error(f"❌ Invalid ({val_score:.2f})")
+            display_schema_tab(result)
         
         with tab2:
-            # Schema linking details
-            st.markdown("**Relevant Tables:**")
-            for table in sorted(result['step1']['schema_links']['tables']):
-                st.success(f"📊 {table}")
-            
-            if result['step1']['schema_links']['foreign_keys']:
-                st.markdown("**Foreign Keys:**")
-                for fk in result['step1']['schema_links']['foreign_keys']:
-                    st.info(f"{fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}")
+            display_complexity_tab(result)
         
         with tab3:
-            # Generated SQL
-            generated_sql = None
-            if result.get('step6a'):
-                st.markdown("**Method:** Simple Few-Shot (6a)")
-                generated_sql = result['step6a']['generated_sql']
-            elif result.get('step6b'):
-                st.markdown("**Method:** Intermediate Representation (6b)")
-                with st.expander("🔍 NatSQL Intermediate"):
-                    st.code(result['step6b']['natsql_intermediate'], language='text')
-                generated_sql = result['step6b']['generated_sql']
-            elif result.get('step6c'):
-                st.markdown("**Method:** Decomposed Generation (6c)")
-                if result['step6c']['sub_sql_list']:
-                    st.markdown(f"**Sub-queries:** {len(result['step6c']['sub_sql_list'])}")
-                generated_sql = result['step6c']['generated_sql']
-            
-            if generated_sql:
-                st.code(generated_sql, language='sql')
-            
-            # Ground truth comparison
-            if 'query' in example:
-                st.markdown("---")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("**Generated SQL:**")
-                    st.code(generated_sql if generated_sql else "N/A", language='sql')
-                with col2:
-                    st.markdown("**Ground Truth:**")
-                    st.code(example['query'], language='sql')
+            display_examples_tab(result)
         
         with tab4:
-            # Validation results
-            if result.get('step7'):
-                validation = result['step7']
-                
-                # Errors
-                if validation['errors']:
-                    st.markdown("### ❌ Errors")
-                    for i, error in enumerate(validation['errors'], 1):
-                        severity_color = {
-                            'CRITICAL': '🔴',
-                            'HIGH': '🟠',
-                            'MEDIUM': '🟡',
-                            'LOW': '🟢'
-                        }.get(error['severity'], '⚪')
-                        
-                        st.error(f"{severity_color} **{error['type']}** [{error['severity']}]: {error['message']}")
-                else:
-                    st.success("✅ No errors found!")
-                
-                # Warnings
-                if validation['warnings']:
-                    st.markdown("### ⚠️ Warnings")
-                    for i, warning in enumerate(validation['warnings'], 1):
-                        st.warning(f"**{warning['type']}**: {warning['message']}")
-                
-                # Suggestions
-                if validation['suggestions']:
-                    st.markdown("### 💡 Suggestions")
-                    for suggestion in validation['suggestions']:
-                        st.info(suggestion)
-            else:
-                st.warning("⚠️ Validation not performed")
+            display_routing_tab(result)
         
         with tab5:
-            # Full pipeline details
-            st.json({
-                'step1_schema_links': {
-                    'tables': list(result['step1']['schema_links']['tables']),
-                    'num_columns': sum(len(cols) for cols in result['step1']['schema_links']['columns'].values()),
-                    'foreign_keys': len(result['step1']['schema_links']['foreign_keys'])
-                },
-                'step2_complexity': {
-                    'class': result['step2']['complexity_class'].value,
-                    'needs_joins': result['step2']['needs_joins'],
-                    'needs_subqueries': result['step2']['needs_subqueries'],
-                    'aggregations': result['step2']['aggregations']
-                },
-                'step4_examples': {
-                    'total_found': result['step4']['total_found'],
-                    'top_similarity': result['step4']['similar_examples'][0]['similarity_score'] if result['step4']['similar_examples'] else 0
-                },
-                'step5_routing': {
-                    'strategy': result['step5']['strategy'].value,
-                    'description': result['step5']['description']
-                },
-                'step7_validation': {
-                    'is_valid': result['step7']['is_valid'] if result.get('step7') else None,
-                    'score': result['step7']['validation_score'] if result.get('step7') else None,
-                    'num_errors': len(result['step7']['errors']) if result.get('step7') else None,
-                    'num_warnings': len(result['step7']['warnings']) if result.get('step7') else None
-                }
-            })
+            display_sql_tab(result, example)
+        
+        with tab6:
+            display_validation_tab(result)
 
 
 def main():
@@ -263,13 +436,27 @@ def main():
     # Main content
     if 'spider_data' not in st.session_state:
         st.info("👈 Load dataset from sidebar to begin")
+        st.markdown("""
+        ### 📖 How to use:
+        1. Configure the paths in the sidebar
+        2. Click "Load Dataset" to load Spider examples
+        3. Set the number of queries to process and starting index
+        4. Click "Run Batch Processing" to process multiple queries
+        5. View detailed results for each query in expandable sections
+        6. Export results as CSV or JSON
+        """)
         return
-    
-    st.success(f"📊 Dataset loaded: {len(st.session_state.spider_data)} examples")
+
+    if st.session_state.spider_data:
+        st.success(f"📊 Dataset loaded: {len(st.session_state.spider_data)} examples")
     
     # Batch processing section
     st.markdown("## 🚀 Batch Processing")
     
+    if not st.session_state.get('spider_data'):
+        st.error("Please load the dataset first from the sidebar")
+        return
+
     end_idx = min(start_idx + num_queries, len(st.session_state.spider_data))
     st.info(f"Will process queries {start_idx} to {end_idx - 1} ({end_idx - start_idx} queries)")
     
@@ -306,7 +493,8 @@ def main():
                     example['question'],
                     schema_dict,
                     foreign_keys,
-                    k_examples=k_examples
+                    k_examples=k_examples,
+                    enable_retry=False  # Disable retry for faster batch processing
                 )
                 
                 results.append({

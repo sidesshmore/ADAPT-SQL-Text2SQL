@@ -1,9 +1,11 @@
 """
 ADAPT-SQL Streamlit Application - Main Single Query Interface
+Now with Execution (Step 10) and Evaluation (Step 11)
 """
 import streamlit as st
 import json
 import sqlite3
+import pandas as pd
 from pathlib import Path
 from adapt_baseline import ADAPTBaseline
 
@@ -328,9 +330,177 @@ def display_validation_tab(result: dict):
         st.warning("⚠️ Validation not performed")
 
 
+def display_execution_tab(result: dict, example: dict):
+    """Display execution results (Step 10)"""
+    st.markdown("### SQL Execution (Step 10)")
+    
+    # Check if execution was performed
+    if not result.get('step10_generated'):
+        st.info("💡 Execution not performed. Enable 'Execute SQL' option to see results.")
+        return
+    
+    # Display generated SQL execution
+    st.markdown("#### 🔹 Generated SQL Execution")
+    gen_exec = result['step10_generated']
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if gen_exec['success']:
+            st.success("✅ Executed Successfully")
+        else:
+            st.error("❌ Execution Failed")
+    
+    with col2:
+        st.metric("Execution Time", f"{gen_exec['execution_time']:.3f}s")
+    
+    if gen_exec['success']:
+        st.markdown("**Query Results:**")
+        result_df = gen_exec['result_df']
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Rows Returned", len(result_df))
+        with col2:
+            st.metric("Columns", len(result_df.columns))
+        
+        if len(result_df) > 0:
+            st.dataframe(result_df, use_container_width=True)
+        else:
+            st.info("Query returned no results")
+    else:
+        st.error(f"**Error:** {gen_exec['error_message']}")
+    
+    # Display ground truth execution if available
+    if result.get('step10_gold'):
+        st.markdown("---")
+        st.markdown("#### 🔹 Ground Truth SQL Execution")
+        gold_exec = result['step10_gold']
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if gold_exec['success']:
+                st.success("✅ Executed Successfully")
+            else:
+                st.error("❌ Execution Failed")
+        
+        with col2:
+            st.metric("Execution Time", f"{gold_exec['execution_time']:.3f}s")
+        
+        if gold_exec['success']:
+            st.markdown("**Query Results:**")
+            result_df = gold_exec['result_df']
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Rows Returned", len(result_df))
+            with col2:
+                st.metric("Columns", len(result_df.columns))
+            
+            if len(result_df) > 0:
+                st.dataframe(result_df, use_container_width=True)
+            else:
+                st.info("Query returned no results")
+        else:
+            st.error(f"**Error:** {gold_exec['error_message']}")
+
+
+def display_evaluation_tab(result: dict, example: dict):
+    """Display evaluation results (Step 11)"""
+    st.markdown("### Evaluation (Step 11)")
+    
+    # Check if evaluation was performed
+    if not result.get('step11'):
+        st.info("💡 Evaluation not performed. Both execution and ground truth SQL are required.")
+        return
+    
+    eval_result = result['step11']
+    
+    # Overall score
+    st.markdown("#### 📊 Overall Evaluation Score")
+    
+    score = eval_result['evaluation_score']
+    
+    # Display score with progress bar
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if score >= 0.9:
+            st.success(f"**{score:.2f}**")
+            st.caption("Grade: A (Excellent)")
+        elif score >= 0.7:
+            st.info(f"**{score:.2f}**")
+            st.caption("Grade: B (Good)")
+        elif score >= 0.5:
+            st.warning(f"**{score:.2f}**")
+            st.caption("Grade: C (Fair)")
+        else:
+            st.error(f"**{score:.2f}**")
+            st.caption("Grade: D (Needs Improvement)")
+    
+    with col2:
+        st.progress(score)
+    
+    st.markdown("---")
+    
+    # Individual metrics
+    st.markdown("#### 📈 Individual Metrics")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if eval_result['execution_accuracy']:
+            st.success("✅ Execution\nAccuracy")
+        else:
+            st.error("❌ Execution\nAccuracy")
+    
+    with col2:
+        if eval_result['exact_match']:
+            st.success("✅ Exact\nMatch")
+        else:
+            st.error("❌ Exact\nMatch")
+    
+    with col3:
+        if eval_result['normalized_match']:
+            st.success("✅ Normalized\nMatch")
+        else:
+            st.error("❌ Normalized\nMatch")
+    
+    with col4:
+        sem_score = eval_result['semantic_equivalence']
+        if sem_score >= 0.8:
+            st.success(f"✅ Semantic\n{sem_score:.2f}")
+        elif sem_score >= 0.6:
+            st.warning(f"⚠️ Semantic\n{sem_score:.2f}")
+        else:
+            st.error(f"❌ Semantic\n{sem_score:.2f}")
+    
+    st.markdown("---")
+    
+    # Component scores
+    st.markdown("#### 🔍 Component-Level Scores")
+    
+    component_scores = eval_result['component_scores']
+    
+    cols = st.columns(len(component_scores))
+    
+    for i, (component, score) in enumerate(sorted(component_scores.items())):
+        with cols[i]:
+            if score >= 0.8:
+                st.success(f"**{component.upper()}**\n{score:.2f}")
+            elif score >= 0.5:
+                st.warning(f"**{component.upper()}**\n{score:.2f}")
+            else:
+                st.error(f"**{component.upper()}**\n{score:.2f}")
+    
+    st.markdown("---")
+    
+    # Detailed reasoning
+    with st.expander("📋 Full Evaluation Report"):
+        st.text(eval_result['reasoning'])
+
+
 def main():
     st.title("🎯 ADAPT-SQL Pipeline")
-    st.markdown("Complete Text-to-SQL with Steps 1-7 (including Validation)")
+    st.markdown("Complete Text-to-SQL with Steps 1-11 (including Execution & Evaluation)")
     st.markdown("---")
     
     # Sidebar configuration
@@ -357,6 +527,13 @@ def main():
         k_examples = st.slider("Similar Examples", 1, 20, 10)
         
         st.markdown("---")
+        st.markdown("### 🔧 Pipeline Options")
+        
+        enable_retry = st.checkbox("Enable Retry (Step 8)", value=True)
+        enable_execution = st.checkbox("Enable Execution (Step 10)", value=True)
+        enable_evaluation = st.checkbox("Enable Evaluation (Step 11)", value=True)
+        
+        st.markdown("---")
         
         if st.button("📂 Load Dataset"):
             data = load_spider_data(spider_json_path)
@@ -375,10 +552,14 @@ def main():
         1. Configure the paths in the sidebar
         2. Click "Load Dataset" to load Spider examples
         3. Select an example query to analyze
-        4. Click "Run Pipeline" to process
+        4. Enable/disable pipeline options as needed
+        5. Click "Run Pipeline" to process
         
         ### 🔗 Additional Features:
-        - **Batch Processing**: Process multiple queries at once (see navigation sidebar)
+        - **Steps 1-7**: Schema linking, complexity classification, SQL generation, validation
+        - **Step 8**: Validation-feedback retry mechanism
+        - **Step 10**: Execute SQL on database and compare results
+        - **Step 11**: Comprehensive evaluation metrics
         """)
         return
     
@@ -421,38 +602,60 @@ def main():
             
             adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
             
+            # Get ground truth SQL if available
+            gold_sql = example.get('query', None)
+            
             result = adapt.run_full_pipeline(
                 example['question'],
                 schema_dict,
                 foreign_keys,
-                k_examples=k_examples
+                k_examples=k_examples,
+                enable_retry=enable_retry,
+                db_path=str(db_path) if enable_execution else None,
+                gold_sql=gold_sql if enable_evaluation else None,
+                enable_execution=enable_execution,
+                enable_evaluation=enable_evaluation
             )
             
             st.success("✅ Pipeline Complete!")
             st.markdown("---")
             
             # Display results in tabs
-            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-                "📊 Schema", "🔍 Complexity", "📎 Examples", "🔀 Route", "✨ SQL", "✅ Validation"
-            ])
+            tabs = ["📊 Schema", "🔍 Complexity", "🔎 Examples", "🔀 Route", "✨ SQL", "✅ Validation"]
             
-            with tab1:
+            if enable_execution:
+                tabs.append("▶️ Execution")
+            
+            if enable_evaluation:
+                tabs.append("📊 Evaluation")
+            
+            tab_objects = st.tabs(tabs)
+            
+            with tab_objects[0]:
                 display_schema_tab(result)
             
-            with tab2:
+            with tab_objects[1]:
                 display_complexity_tab(result)
             
-            with tab3:
+            with tab_objects[2]:
                 display_examples_tab(result)
             
-            with tab4:
+            with tab_objects[3]:
                 display_routing_tab(result)
             
-            with tab5:
+            with tab_objects[4]:
                 display_sql_tab(result, example)
             
-            with tab6:
+            with tab_objects[5]:
                 display_validation_tab(result)
+            
+            if enable_execution:
+                with tab_objects[6]:
+                    display_execution_tab(result, example)
+            
+            if enable_evaluation:
+                with tab_objects[-1]:
+                    display_evaluation_tab(result, example)
 
 
 if __name__ == "__main__":

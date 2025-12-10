@@ -1,6 +1,7 @@
 """
-ADAPT-SQL Baseline - Complete Pipeline (Steps 1-8)
-Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + Generation + Validation + Retry
+ADAPT-SQL Baseline - Complete Pipeline (Steps 1-11)
+Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + 
+Generation + Validation + Retry + Execute + Evaluate
 """
 from typing import Dict, List
 from schema_linking import EnhancedSchemaLinker
@@ -14,6 +15,8 @@ from intermediate_repr import IntermediateRepresentationGenerator
 from decomposed_generation import DecomposedGenerator
 from validate_sql import SQLValidator
 from validation_feedback_retry import ValidationFeedbackRetry
+from execute_compare import DatabaseManager
+from evaluation import Text2SQLEvaluator
 
 
 class ADAPTBaseline:
@@ -21,7 +24,8 @@ class ADAPTBaseline:
         self, 
         model: str = "llama3.2",
         vector_store_path: str = None,
-        max_retries: int = 2
+        max_retries: int = 2,
+        execution_timeout: int = 30
     ):
         """
         Initialize ADAPT-SQL with Ollama model and optional vector store
@@ -30,9 +34,11 @@ class ADAPTBaseline:
             model: Ollama model name (e.g., "llama3.2", "codellama", "mistral")
             vector_store_path: Path to pre-built FAISS vector store
             max_retries: Maximum validation retry attempts (default: 2)
+            execution_timeout: SQL execution timeout in seconds (default: 30)
         """
         self.model = model
         self.max_retries = max_retries
+        self.execution_timeout = execution_timeout
         
         # Initialize all pipeline components
         self.schema_linker = EnhancedSchemaLinker(model=model)
@@ -41,6 +47,8 @@ class ADAPTBaseline:
         self.routing_strategy = RoutingStrategy(model=model)
         self.sql_validator = SQLValidator()
         self.retry_engine = ValidationFeedbackRetry(model=model, max_retries=max_retries)
+        self.db_manager = DatabaseManager(timeout=execution_timeout)
+        self.evaluator = Text2SQLEvaluator()
         
         # Initialize all three generation strategies
         self.few_shot_generator = FewShotGenerator(model=model)
@@ -65,11 +73,7 @@ class ADAPTBaseline:
         schema_dict: Dict[str, List[Dict]],
         foreign_keys: List[Dict]
     ) -> Dict:
-        """
-        STEP 1: Enhanced Schema Linking
-        
-        Identifies relevant tables, columns, and foreign keys for the query.
-        """
+        """STEP 1: Enhanced Schema Linking"""
         return self.schema_linker.link_schema(
             natural_query, 
             schema_dict, 
@@ -81,11 +85,7 @@ class ADAPTBaseline:
         natural_query: str,
         step1_result: Dict
     ) -> Dict:
-        """
-        STEP 2: Query Complexity Classification
-        
-        Classifies query as EASY, NON_NESTED_COMPLEX, or NESTED_COMPLEX.
-        """
+        """STEP 2: Query Complexity Classification"""
         return self.complexity_classifier.classify_query(
             natural_query,
             step1_result['pruned_schema'],
@@ -97,11 +97,7 @@ class ADAPTBaseline:
         natural_query: str,
         step1_result: Dict
     ) -> Dict:
-        """
-        STEP 3: Preliminary SQL Prediction
-        
-        Generates rough SQL skeleton for example matching.
-        """
+        """STEP 3: Preliminary SQL Prediction"""
         return self.preliminary_predictor.predict_sql_skeleton(
             natural_query,
             step1_result['pruned_schema'],
@@ -113,11 +109,7 @@ class ADAPTBaseline:
         natural_query: str,
         k: int = 10
     ) -> Dict:
-        """
-        STEP 4: Similarity Search in Vector Database
-        
-        Retrieves similar examples from the vector store.
-        """
+        """STEP 4: Similarity Search in Vector Database"""
         if self.example_selector is None:
             return {
                 'similar_examples': [],
@@ -135,11 +127,7 @@ class ADAPTBaseline:
         self,
         complexity_class: ComplexityClass
     ) -> Dict:
-        """
-        STEP 5: Route to Appropriate Generation Strategy
-        
-        Determines which SQL generation strategy to use based on complexity.
-        """
+        """STEP 5: Route to Appropriate Generation Strategy"""
         return self.routing_strategy.route_to_strategy(complexity_class.value)
     
     def run_step6a_few_shot_generation(
@@ -148,11 +136,7 @@ class ADAPTBaseline:
         step1_result: Dict,
         step4_result: Dict
     ) -> Dict:
-        """
-        STEP 6a: Simple Few-Shot Generation (for EASY queries)
-        
-        Direct SQL generation using similar examples.
-        """
+        """STEP 6a: Simple Few-Shot Generation (for EASY queries)"""
         return self.few_shot_generator.generate_sql_easy(
             natural_query,
             step1_result['pruned_schema'],
@@ -166,11 +150,7 @@ class ADAPTBaseline:
         step1_result: Dict,
         step4_result: Dict
     ) -> Dict:
-        """
-        STEP 6b: Intermediate Representation Generation (for NON_NESTED_COMPLEX)
-        
-        Two-stage generation: NatSQL intermediate → Final SQL.
-        """
+        """STEP 6b: Intermediate Representation Generation (for NON_NESTED_COMPLEX)"""
         return self.intermediate_generator.generate_sql_with_intermediate(
             natural_query,
             step1_result['pruned_schema'],
@@ -185,14 +165,7 @@ class ADAPTBaseline:
         step2_result: Dict,
         step4_result: Dict
     ) -> Dict:
-        """
-        STEP 6c: Decomposed Generation with Subquery Handling (for NESTED_COMPLEX)
-        
-        Three-stage generation:
-        1. Generate SQL for each sub-question
-        2. Create intermediate representation combining sub-queries
-        3. Convert to final nested SQL
-        """
+        """STEP 6c: Decomposed Generation with Subquery Handling (for NESTED_COMPLEX)"""
         return self.decomposed_generator.generate_sql_decomposed(
             natural_query,
             step1_result['pruned_schema'],
@@ -208,11 +181,7 @@ class ADAPTBaseline:
         generated_sql: str,
         step1_result: Dict
     ) -> Dict:
-        """
-        STEP 7: SQL Validation
-        
-        Validates generated SQL for syntax, schema compliance, and logical correctness.
-        """
+        """STEP 7: SQL Validation"""
         return self.sql_validator.validate_sql_enhanced(
             generated_sql,
             step1_result['pruned_schema'],
@@ -228,11 +197,7 @@ class ADAPTBaseline:
         generation_strategy: str,
         step4_result: Dict = None
     ) -> Dict:
-        """
-        STEP 8: Validation-Feedback Retry
-        
-        Regenerates SQL based on validation errors (if any).
-        """
+        """STEP 8: Validation-Feedback Retry"""
         original_examples = step4_result['similar_examples'] if step4_result else None
         
         return self.retry_engine.retry_with_feedback(
@@ -245,6 +210,44 @@ class ADAPTBaseline:
             original_examples=original_examples
         )
     
+    def run_step10_execute(
+        self,
+        sql: str,
+        db_path: str
+    ) -> Dict:
+        """STEP 10: Execute SQL Query"""
+        return self.db_manager.execute_query(sql, db_path)
+    
+    def run_step10_execute_both(
+        self,
+        generated_sql: str,
+        gold_sql: str,
+        db_path: str
+    ) -> Dict:
+        """STEP 10: Execute Both Generated and Gold SQL"""
+        return self.db_manager.execute_both_queries(
+            generated_sql,
+            gold_sql,
+            db_path
+        )
+    
+    def run_step11_evaluate(
+        self,
+        question: str,
+        generated_sql: str,
+        gold_sql: str,
+        generated_execution: Dict,
+        gold_execution: Dict
+    ) -> Dict:
+        """STEP 11: Evaluate Generated SQL"""
+        return self.evaluator.evaluate_example(
+            question,
+            generated_sql,
+            gold_sql,
+            generated_execution,
+            gold_execution
+        )
+    
     def run_steps_1_to_4(
         self,
         natural_query: str,
@@ -252,9 +255,7 @@ class ADAPTBaseline:
         foreign_keys: List[Dict],
         k_examples: int = 10
     ) -> Dict:
-        """
-        Run Steps 1 through 4 of the ADAPT-SQL pipeline
-        """
+        """Run Steps 1 through 4 of the ADAPT-SQL pipeline"""
         # Step 1: Schema Linking
         step1_result = self.run_step1_schema_linking(
             natural_query, schema_dict, foreign_keys
@@ -288,12 +289,17 @@ class ADAPTBaseline:
         schema_dict: Dict[str, List[Dict]],
         foreign_keys: List[Dict],
         k_examples: int = 10,
-        enable_retry: bool = True
+        enable_retry: bool = True,
+        db_path: str = None,
+        gold_sql: str = None,
+        enable_execution: bool = False,
+        enable_evaluation: bool = False
     ) -> Dict:
         """
-        Run complete ADAPT-SQL pipeline (Steps 1-8)
+        Run complete ADAPT-SQL pipeline (Steps 1-11)
         
-        This is the main entry point for end-to-end SQL generation with validation and retry.
+        This is the main entry point for end-to-end SQL generation with validation, 
+        retry, execution, and evaluation.
         
         Args:
             natural_query: Natural language question
@@ -301,25 +307,16 @@ class ADAPTBaseline:
             foreign_keys: Foreign key relationships
             k_examples: Number of similar examples to retrieve
             enable_retry: Enable validation-feedback retry (Step 8)
+            db_path: Path to database (required for execution)
+            gold_sql: Ground truth SQL (required for evaluation)
+            enable_execution: Enable SQL execution (Step 10)
+            enable_evaluation: Enable evaluation (Step 11)
             
         Returns:
-            {
-                'step1': {...},
-                'step2': {...},
-                'step3': {...},
-                'step4': {...},
-                'step5': {...},
-                'step6a': {...} (if EASY),
-                'step6b': {...} (if NON_NESTED_COMPLEX),
-                'step6c': {...} (if NESTED_COMPLEX),
-                'step7': {...},
-                'step8': {...} (if retry enabled),
-                'final_sql': str,
-                'final_is_valid': bool
-            }
+            Complete results dictionary with all steps
         """
         print("\n" + "="*70)
-        print("RUNNING COMPLETE ADAPT-SQL PIPELINE (STEPS 1-8)")
+        print("RUNNING COMPLETE ADAPT-SQL PIPELINE (STEPS 1-11)")
         print("="*70)
         
         # Steps 1-4: Analysis and Example Retrieval
@@ -340,7 +337,6 @@ class ADAPTBaseline:
         strategy = step5_result['strategy']
         
         if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
-            # EASY queries: Direct few-shot generation
             step6a_result = self.run_step6a_few_shot_generation(
                 natural_query,
                 results['step1'],
@@ -350,7 +346,6 @@ class ADAPTBaseline:
             generated_sql = step6a_result['generated_sql']
             
         elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
-            # NON_NESTED_COMPLEX queries: Two-stage with intermediate representation
             step6b_result = self.run_step6b_intermediate_generation(
                 natural_query,
                 results['step1'],
@@ -360,7 +355,6 @@ class ADAPTBaseline:
             generated_sql = step6b_result['generated_sql']
             
         elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
-            # NESTED_COMPLEX queries: Three-stage decomposed generation
             step6c_result = self.run_step6c_decomposed_generation(
                 natural_query,
                 results['step1'],
@@ -405,7 +399,6 @@ class ADAPTBaseline:
             )
             results['step8'] = step8_result
             
-            # Update final SQL with retry result
             final_sql = step8_result['final_sql']
             final_is_valid = step8_result['is_valid']
         else:
@@ -415,8 +408,32 @@ class ADAPTBaseline:
         results['final_sql'] = final_sql
         results['final_is_valid'] = final_is_valid
         
+        # Step 10: Execute SQL (if enabled and db_path provided)
+        results['step10_generated'] = None
+        results['step10_gold'] = None
+        
+        if enable_execution and db_path and final_sql:
+            # Execute generated SQL
+            results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
+            
+            # Execute gold SQL if provided
+            if gold_sql:
+                results['step10_gold'] = self.run_step10_execute(gold_sql, db_path)
+        
+        # Step 11: Evaluate (if enabled and gold_sql provided)
+        results['step11'] = None
+        
+        if enable_evaluation and gold_sql and results['step10_generated'] and results['step10_gold']:
+            results['step11'] = self.run_step11_evaluate(
+                natural_query,
+                final_sql,
+                gold_sql,
+                results['step10_generated'],
+                results['step10_gold']
+            )
+        
         print("\n" + "="*70)
-        status = "âœ…" if final_is_valid else "⚠️ "
+        status = "✅" if final_is_valid else "⚠️"
         print(f"PIPELINE COMPLETED - ALL STEPS {status}")
         print("="*70 + "\n")
         

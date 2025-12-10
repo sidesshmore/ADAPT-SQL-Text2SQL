@@ -1,5 +1,5 @@
 """
-ADAPT-SQL Baseline - Complete Pipeline (Steps 1-6a)
+ADAPT-SQL Baseline - Complete Pipeline (Steps 1-6b)
 Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + Generation
 """
 from typing import Dict, List
@@ -10,6 +10,7 @@ from vector_search import DualSimilaritySelector
 from vector_store import SQLVectorStore
 from routing_strategy import RoutingStrategy, GenerationStrategy
 from few_shot import FewShotGenerator
+from intermediate_repr import IntermediateRepresentationGenerator
 
 
 class ADAPTBaseline:
@@ -25,6 +26,7 @@ class ADAPTBaseline:
         self.preliminary_predictor = PreliminaryPredictor(model=model)
         self.routing_strategy = RoutingStrategy(model=model)
         self.few_shot_generator = FewShotGenerator(model=model)
+        self.intermediate_generator = IntermediateRepresentationGenerator(model=model)
         
         # Load vector store if path provided
         self.vector_store = None
@@ -115,6 +117,20 @@ class ADAPTBaseline:
             step4_result['similar_examples']
         )
     
+    def run_step6b_intermediate_generation(
+        self,
+        natural_query: str,
+        step1_result: Dict,
+        step4_result: Dict
+    ) -> Dict:
+        """STEP 6b: Intermediate Representation Generation (for NON_NESTED_COMPLEX)"""
+        return self.intermediate_generator.generate_sql_with_intermediate(
+            natural_query,
+            step1_result['pruned_schema'],
+            step1_result['schema_links'],
+            step4_result['similar_examples']
+        )
+    
     def run_steps_1_to_4(
         self,
         natural_query: str,
@@ -168,7 +184,7 @@ class ADAPTBaseline:
         k_examples: int = 10
     ) -> Dict:
         """
-        Run complete ADAPT-SQL pipeline (Steps 1-6a)
+        Run complete ADAPT-SQL pipeline (Steps 1-6b)
         
         Returns:
             {
@@ -177,7 +193,8 @@ class ADAPTBaseline:
                 'step3': {...},
                 'step4': {...},
                 'step5': {...},
-                'step6a': {...} (if EASY) or None
+                'step6a': {...} (if EASY),
+                'step6b': {...} (if NON_NESTED_COMPLEX)
             }
         """
         print("\n" + "="*70)
@@ -193,7 +210,10 @@ class ADAPTBaseline:
         step5_result = self.run_step5_routing(results['step2']['complexity_class'])
         results['step5'] = step5_result
         
-        # Step 6: Generation (currently only 6a for EASY queries)
+        # Step 6: Generation based on strategy
+        results['step6a'] = None
+        results['step6b'] = None
+        
         if step5_result['strategy'] == GenerationStrategy.SIMPLE_FEW_SHOT:
             step6a_result = self.run_step6a_few_shot_generation(
                 natural_query,
@@ -201,8 +221,16 @@ class ADAPTBaseline:
                 results['step4']
             )
             results['step6a'] = step6a_result
+            
+        elif step5_result['strategy'] == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
+            step6b_result = self.run_step6b_intermediate_generation(
+                natural_query,
+                results['step1'],
+                results['step4']
+            )
+            results['step6b'] = step6b_result
+            
         else:
-            results['step6a'] = None
             print(f"\n⚠️  Strategy {step5_result['strategy'].value} not yet implemented")
         
         print("\n" + "="*70)

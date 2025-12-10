@@ -1,6 +1,6 @@
 """
-ADAPT-SQL Baseline - Complete Pipeline (Steps 1-6c)
-Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + Generation
+ADAPT-SQL Baseline - Complete Pipeline (Steps 1-7)
+Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + Generation + Validation
 """
 from typing import Dict, List
 from schema_linking import EnhancedSchemaLinker
@@ -12,6 +12,7 @@ from routing_strategy import RoutingStrategy, GenerationStrategy
 from few_shot import FewShotGenerator
 from intermediate_repr import IntermediateRepresentationGenerator
 from decomposed_generation import DecomposedGenerator
+from validate_sql import SQLValidator
 
 
 class ADAPTBaseline:
@@ -34,6 +35,7 @@ class ADAPTBaseline:
         self.complexity_classifier = QueryComplexityClassifier(model=model)
         self.preliminary_predictor = PreliminaryPredictor(model=model)
         self.routing_strategy = RoutingStrategy(model=model)
+        self.sql_validator = SQLValidator()  # NEW: Validator doesn't need model
         
         # Initialize all three generation strategies
         self.few_shot_generator = FewShotGenerator(model=model)
@@ -50,7 +52,7 @@ class ADAPTBaseline:
                 self.example_selector = DualSimilaritySelector(self.vector_store)
                 print("✅ Vector store loaded successfully")
             else:
-                print("⚠️  Vector store loading failed")
+                print("⚠️ Vector store loading failed")
     
     def run_step1_schema_linking(
         self,
@@ -308,6 +310,36 @@ class ADAPTBaseline:
             intermediate_generator=self.intermediate_generator
         )
     
+    def run_step7_validation(
+        self,
+        generated_sql: str,
+        step1_result: Dict
+    ) -> Dict:
+        """
+        STEP 7: SQL Validation
+        
+        Validates generated SQL for syntax, schema compliance, and logical correctness.
+        
+        Args:
+            generated_sql: SQL query from Step 6
+            step1_result: Output from Step 1 (for schema reference)
+            
+        Returns:
+            {
+                'is_valid': bool,
+                'errors': List[Dict],
+                'warnings': List[Dict],
+                'suggestions': List[str],
+                'validation_score': float,
+                'reasoning': str
+            }
+        """
+        return self.sql_validator.validate_sql_enhanced(
+            generated_sql,
+            step1_result['pruned_schema'],
+            step1_result['schema_links']
+        )
+    
     def run_steps_1_to_4(
         self,
         natural_query: str,
@@ -367,9 +399,9 @@ class ADAPTBaseline:
         k_examples: int = 10
     ) -> Dict:
         """
-        Run complete ADAPT-SQL pipeline (Steps 1-6c)
+        Run complete ADAPT-SQL pipeline (Steps 1-7)
         
-        This is the main entry point for end-to-end SQL generation.
+        This is the main entry point for end-to-end SQL generation and validation.
         
         Args:
             natural_query: Natural language question
@@ -386,11 +418,12 @@ class ADAPTBaseline:
                 'step5': {...},
                 'step6a': {...} (if EASY),
                 'step6b': {...} (if NON_NESTED_COMPLEX),
-                'step6c': {...} (if NESTED_COMPLEX)
+                'step6c': {...} (if NESTED_COMPLEX),
+                'step7': {...}  (validation results)
             }
         """
         print("\n" + "="*70)
-        print("RUNNING COMPLETE ADAPT-SQL PIPELINE")
+        print("RUNNING COMPLETE ADAPT-SQL PIPELINE (STEPS 1-7)")
         print("="*70)
         
         # Steps 1-4: Analysis and Example Retrieval
@@ -406,6 +439,7 @@ class ADAPTBaseline:
         results['step6a'] = None
         results['step6b'] = None
         results['step6c'] = None
+        generated_sql = None
         
         strategy = step5_result['strategy']
         
@@ -417,6 +451,7 @@ class ADAPTBaseline:
                 results['step4']
             )
             results['step6a'] = step6a_result
+            generated_sql = step6a_result['generated_sql']
             
         elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
             # NON_NESTED_COMPLEX queries: Two-stage with intermediate representation
@@ -426,6 +461,7 @@ class ADAPTBaseline:
                 results['step4']
             )
             results['step6b'] = step6b_result
+            generated_sql = step6b_result['generated_sql']
             
         elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
             # NESTED_COMPLEX queries: Three-stage decomposed generation
@@ -436,12 +472,30 @@ class ADAPTBaseline:
                 results['step4']
             )
             results['step6c'] = step6c_result
+            generated_sql = step6c_result['generated_sql']
             
         else:
-            print(f"\n⚠️  Unknown strategy: {strategy.value}")
+            print(f"\n⚠️ Unknown strategy: {strategy.value}")
+        
+        # Step 7: Validation (NEW)
+        if generated_sql:
+            step7_result = self.run_step7_validation(
+                generated_sql,
+                results['step1']
+            )
+            results['step7'] = step7_result
+        else:
+            results['step7'] = {
+                'is_valid': False,
+                'errors': [{'type': 'GENERATION_ERROR', 'message': 'No SQL generated', 'severity': 'CRITICAL'}],
+                'warnings': [],
+                'suggestions': [],
+                'validation_score': 0.0,
+                'reasoning': 'No SQL was generated in Step 6'
+            }
         
         print("\n" + "="*70)
-        print("PIPELINE COMPLETED")
+        print("PIPELINE COMPLETED - ALL 7 STEPS ✓")
         print("="*70 + "\n")
         
         return results

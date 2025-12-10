@@ -1,5 +1,5 @@
 """
-ADAPT-SQL Streamlit Application - Streamlined Version
+ADAPT-SQL Streamlit Application - With Step 7 Validation
 """
 import streamlit as st
 import json
@@ -87,9 +87,17 @@ def display_complexity(complexity):
         st.error(f"🔴 {complexity}")
 
 
+def display_validation_badge(is_valid, validation_score):
+    """Display validation status badge"""
+    if is_valid:
+        st.success(f"✅ Valid SQL (Score: {validation_score:.2f})")
+    else:
+        st.error(f"❌ Invalid SQL (Score: {validation_score:.2f})")
+
+
 def main():
     st.title("🎯 ADAPT-SQL Pipeline")
-    st.markdown("Complete Text-to-SQL with Steps 6a, 6b, 6c")
+    st.markdown("Complete Text-to-SQL with Steps 1-7 (including Validation)")
     st.markdown("---")
     
     # Sidebar
@@ -178,9 +186,9 @@ def main():
             st.success("✅ Complete!")
             st.markdown("---")
             
-            # Display results
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "📊 Schema", "🔍 Complexity", "🔎 Examples", "🔀 Route", "✨ SQL"
+            # Display results - NOW WITH 6 TABS INCLUDING VALIDATION
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+                "📊 Schema", "🔍 Complexity", "🔎 Examples", "🔀 Route", "✨ SQL", "✅ Validation"
             ])
             
             with tab1:
@@ -262,7 +270,7 @@ def main():
                 elif result.get('step6b'):
                     st.markdown("**Method:** Intermediate Representation (6b)")
                     
-                    with st.expander("🔍 NatSQL Intermediate"):
+                    with st.expander("📝 NatSQL Intermediate"):
                         st.code(result['step6b']['natsql_intermediate'], language='text')
                     
                     st.markdown("**Generated SQL:**")
@@ -292,7 +300,7 @@ def main():
                                 st.markdown(f"**Question:** {sub_info['sub_question']}")
                                 st.code(sub_info['sql'], language='sql')
                     
-                    with st.expander("🔍 NatSQL Intermediate with Sub-queries"):
+                    with st.expander("📝 NatSQL Intermediate with Sub-queries"):
                         st.code(result['step6c']['natsql_intermediate'], language='text')
                     
                     st.markdown("**Final SQL:**")
@@ -327,6 +335,80 @@ def main():
                     with col2:
                         st.markdown("*Ground Truth:*")
                         st.code(example['query'], language='sql')
+            
+            # NEW TAB: Validation Results
+            with tab6:
+                st.markdown("### SQL Validation (Step 7)")
+                
+                if result.get('step7'):
+                    validation = result['step7']
+                    
+                    # Overall status
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        display_validation_badge(validation['is_valid'], validation['validation_score'])
+                    with col2:
+                        st.metric("Errors", len(validation['errors']))
+                    with col3:
+                        st.metric("Warnings", len(validation['warnings']))
+                    
+                    st.markdown("---")
+                    
+                    # Errors section
+                    if validation['errors']:
+                        st.markdown("### ❌ Errors")
+                        for i, error in enumerate(validation['errors'], 1):
+                            severity_color = {
+                                'CRITICAL': '🔴',
+                                'HIGH': '🟠',
+                                'MEDIUM': '🟡',
+                                'LOW': '🟢'
+                            }.get(error['severity'], '⚪')
+                            
+                            with st.expander(f"{severity_color} Error {i}: {error['type']} [{error['severity']}]", expanded=True):
+                                st.error(error['message'])
+                                
+                                # Show additional context if available
+                                if 'table' in error:
+                                    st.write(f"**Table:** `{error['table']}`")
+                                if 'column' in error:
+                                    st.write(f"**Column:** `{error['column']}`")
+                    else:
+                        st.success("✅ No errors found!")
+                    
+                    st.markdown("---")
+                    
+                    # Warnings section
+                    if validation['warnings']:
+                        st.markdown("### ⚠️ Warnings")
+                        for i, warning in enumerate(validation['warnings'], 1):
+                            severity_color = {
+                                'MEDIUM': '🟡',
+                                'LOW': '🟢'
+                            }.get(warning['severity'], '⚪')
+                            
+                            with st.expander(f"{severity_color} Warning {i}: {warning['type']} [{warning['severity']}]"):
+                                st.warning(warning['message'])
+                                
+                                if 'table' in warning:
+                                    st.write(f"**Table:** `{warning['table']}`")
+                    else:
+                        st.info("No warnings")
+                    
+                    st.markdown("---")
+                    
+                    # Suggestions section
+                    if validation['suggestions']:
+                        st.markdown("### 💡 Suggestions")
+                        for i, suggestion in enumerate(validation['suggestions'], 1):
+                            st.info(f"{i}. {suggestion}")
+                    
+                    # Full validation reasoning
+                    with st.expander("📋 Full Validation Report"):
+                        st.text(validation['reasoning'])
+                
+                else:
+                    st.warning("⚠️ Validation not performed")
 
 
 if __name__ == "__main__":

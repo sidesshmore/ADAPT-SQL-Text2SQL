@@ -1,26 +1,17 @@
 """
-ADAPT-SQL Streamlit Application - Updated with Step 6b
+ADAPT-SQL Streamlit Application - Streamlined Version
 """
 import streamlit as st
 import json
 import sqlite3
-import pandas as pd
 from pathlib import Path
 from adapt_baseline import ADAPTBaseline
-from datetime import datetime
 
 
-st.set_page_config(
-    page_title="ADAPT-SQL Pipeline",
-    page_icon="🎯",
-    layout="wide"
-)
+st.set_page_config(page_title="ADAPT-SQL Pipeline", page_icon="🎯", layout="wide")
 
-# Session state
 if 'spider_data' not in st.session_state:
     st.session_state.spider_data = None
-if 'batch_results' not in st.session_state:
-    st.session_state.batch_results = []
 
 
 def load_spider_data(json_path: str):
@@ -98,7 +89,7 @@ def display_complexity(complexity):
 
 def main():
     st.title("🎯 ADAPT-SQL Pipeline")
-    st.markdown("End-to-end Text-to-SQL Generation with Intermediate Representation")
+    st.markdown("Complete Text-to-SQL with Steps 6a, 6b, 6c")
     st.markdown("---")
     
     # Sidebar
@@ -139,8 +130,8 @@ def main():
         st.info("👈 Load dataset from sidebar")
         return
     
-    # Single Query Mode
-    st.header("🔍 Single Query")
+    # Example selection
+    st.header("🔍 Query Analysis")
     
     example_idx = st.selectbox(
         "Select Example",
@@ -187,12 +178,12 @@ def main():
             st.success("✅ Complete!")
             st.markdown("---")
             
-            # Display results in tabs
-            tabs = st.tabs([
+            # Display results
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "📊 Schema", "🔍 Complexity", "🔎 Examples", "🔀 Route", "✨ SQL"
             ])
             
-            with tabs[0]:
+            with tab1:
                 st.markdown("### Schema Linking")
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -207,7 +198,7 @@ def main():
                 for table in sorted(result['step1']['schema_links']['tables']):
                     st.success(f"📊 {table}")
             
-            with tabs[1]:
+            with tab2:
                 st.markdown("### Complexity Classification")
                 display_complexity(result['step2']['complexity_class'].value)
                 
@@ -221,10 +212,15 @@ def main():
                         st.write(f"• Aggregations: {', '.join(result['step2']['aggregations'])}")
                     st.write(f"• GROUP BY: {'✅' if result['step2']['has_grouping'] else '❌'}")
                 
+                if result['step2'].get('sub_questions'):
+                    st.markdown("**Sub-questions:**")
+                    for i, sq in enumerate(result['step2']['sub_questions'], 1):
+                        st.info(f"{i}. {sq}")
+                
                 st.markdown("**Preliminary SQL:**")
                 st.code(result['step3']['predicted_sql'], language='sql')
             
-            with tabs[2]:
+            with tab3:
                 st.markdown("### Similar Examples")
                 st.metric("Found", result['step4']['total_found'])
                 
@@ -236,18 +232,18 @@ def main():
                         st.markdown(f"**Question:** {ex.get('question', '')}")
                         st.code(ex.get('query', ''), language='sql')
             
-            with tabs[3]:
+            with tab4:
                 st.markdown("### Routing Strategy")
                 strategy = result['step5']['strategy'].value
                 st.success(f"🎯 {strategy}")
                 st.info(result['step5']['description'])
             
-            with tabs[4]:
+            with tab5:
                 st.markdown("### Generated SQL")
                 
                 # Step 6a: Simple Few-Shot
                 if result.get('step6a'):
-                    st.markdown("**Method:** Simple Few-Shot")
+                    st.markdown("**Method:** Simple Few-Shot (6a)")
                     st.code(result['step6a']['generated_sql'], language='sql')
                     
                     col1, col2 = st.columns(2)
@@ -264,9 +260,9 @@ def main():
                 
                 # Step 6b: Intermediate Representation
                 elif result.get('step6b'):
-                    st.markdown("**Method:** Intermediate Representation")
+                    st.markdown("**Method:** Intermediate Representation (6b)")
                     
-                    with st.expander("🔍 NatSQL Intermediate Representation"):
+                    with st.expander("🔍 NatSQL Intermediate"):
                         st.code(result['step6b']['natsql_intermediate'], language='text')
                     
                     st.markdown("**Generated SQL:**")
@@ -284,8 +280,53 @@ def main():
                     with col2:
                         st.metric("Examples Used", result['step6b']['examples_used'])
                 
+                # Step 6c: Decomposed Generation
+                elif result.get('step6c'):
+                    st.markdown("**Method:** Decomposed Generation (6c)")
+                    
+                    # Sub-questions and SQLs
+                    if result['step6c']['sub_sql_list']:
+                        st.markdown("**Sub-queries:**")
+                        for i, sub_info in enumerate(result['step6c']['sub_sql_list'], 1):
+                            with st.expander(f"Sub-query {i}: {sub_info['sub_question'][:40]}... [{sub_info['complexity']}]"):
+                                st.markdown(f"**Question:** {sub_info['sub_question']}")
+                                st.code(sub_info['sql'], language='sql')
+                    
+                    with st.expander("🔍 NatSQL Intermediate with Sub-queries"):
+                        st.code(result['step6c']['natsql_intermediate'], language='text')
+                    
+                    st.markdown("**Final SQL:**")
+                    st.code(result['step6c']['generated_sql'], language='sql')
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        conf = result['step6c']['confidence']
+                        if conf >= 0.75:
+                            st.success(f"Confidence: {conf:.1%}")
+                        elif conf >= 0.55:
+                            st.warning(f"Confidence: {conf:.1%}")
+                        else:
+                            st.error(f"Confidence: {conf:.1%}")
+                    with col2:
+                        st.metric("Examples Used", result['step6c']['examples_used'])
+                    with col3:
+                        st.metric("Sub-queries", len(result['step6c']['sub_sql_list']))
+                
                 else:
-                    st.warning(f"⚠️ {result['step5']['strategy'].value} not implemented yet")
+                    st.warning("⚠️ No SQL generated")
+                
+                # Compare with ground truth
+                if 'query' in example:
+                    st.markdown("---")
+                    st.markdown("**Compare with Ground Truth:**")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("*Generated:*")
+                        generated = (result.get('step6a') or result.get('step6b') or result.get('step6c') or {}).get('generated_sql', 'N/A')
+                        st.code(generated, language='sql')
+                    with col2:
+                        st.markdown("*Ground Truth:*")
+                        st.code(example['query'], language='sql')
 
 
 if __name__ == "__main__":

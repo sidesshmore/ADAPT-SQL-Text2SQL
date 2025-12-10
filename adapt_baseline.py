@@ -1,13 +1,15 @@
 """
-ADAPT-SQL Baseline - Steps 1, 2, 3 & 4
-Schema Linking + Complexity + Preliminary SQL + Example Selection
+ADAPT-SQL Baseline - Complete Pipeline (Steps 1-6a)
+Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + Generation
 """
 from typing import Dict, List
 from schema_linking import EnhancedSchemaLinker
-from query_complexity import QueryComplexityClassifier
+from query_complexity import QueryComplexityClassifier, ComplexityClass
 from prel_sql_prediction import PreliminaryPredictor
 from vector_search import DualSimilaritySelector
 from vector_store import SQLVectorStore
+from routing_strategy import RoutingStrategy, GenerationStrategy
+from few_shot import FewShotGenerator
 
 
 class ADAPTBaseline:
@@ -21,6 +23,8 @@ class ADAPTBaseline:
         self.schema_linker = EnhancedSchemaLinker(model=model)
         self.complexity_classifier = QueryComplexityClassifier(model=model)
         self.preliminary_predictor = PreliminaryPredictor(model=model)
+        self.routing_strategy = RoutingStrategy(model=model)
+        self.few_shot_generator = FewShotGenerator(model=model)
         
         # Load vector store if path provided
         self.vector_store = None
@@ -90,6 +94,27 @@ class ADAPTBaseline:
             k=k
         )
     
+    def run_step5_routing(
+        self,
+        complexity_class: ComplexityClass
+    ) -> Dict:
+        """STEP 5: Route to Appropriate Generation Strategy"""
+        return self.routing_strategy.route_to_strategy(complexity_class.value)
+    
+    def run_step6a_few_shot_generation(
+        self,
+        natural_query: str,
+        step1_result: Dict,
+        step4_result: Dict
+    ) -> Dict:
+        """STEP 6a: Simple Few-Shot Generation (for EASY queries)"""
+        return self.few_shot_generator.generate_sql_easy(
+            natural_query,
+            step1_result['pruned_schema'],
+            step1_result['schema_links'],
+            step4_result['similar_examples']
+        )
+    
     def run_steps_1_to_4(
         self,
         natural_query: str,
@@ -134,3 +159,54 @@ class ADAPTBaseline:
             'step3': step3_result,
             'step4': step4_result
         }
+    
+    def run_full_pipeline(
+        self,
+        natural_query: str,
+        schema_dict: Dict[str, List[Dict]],
+        foreign_keys: List[Dict],
+        k_examples: int = 10
+    ) -> Dict:
+        """
+        Run complete ADAPT-SQL pipeline (Steps 1-6a)
+        
+        Returns:
+            {
+                'step1': {...},
+                'step2': {...},
+                'step3': {...},
+                'step4': {...},
+                'step5': {...},
+                'step6a': {...} (if EASY) or None
+            }
+        """
+        print("\n" + "="*70)
+        print("RUNNING COMPLETE ADAPT-SQL PIPELINE")
+        print("="*70)
+        
+        # Steps 1-4
+        results = self.run_steps_1_to_4(
+            natural_query, schema_dict, foreign_keys, k_examples
+        )
+        
+        # Step 5: Routing
+        step5_result = self.run_step5_routing(results['step2']['complexity_class'])
+        results['step5'] = step5_result
+        
+        # Step 6: Generation (currently only 6a for EASY queries)
+        if step5_result['strategy'] == GenerationStrategy.SIMPLE_FEW_SHOT:
+            step6a_result = self.run_step6a_few_shot_generation(
+                natural_query,
+                results['step1'],
+                results['step4']
+            )
+            results['step6a'] = step6a_result
+        else:
+            results['step6a'] = None
+            print(f"\n⚠️  Strategy {step5_result['strategy'].value} not yet implemented")
+        
+        print("\n" + "="*70)
+        print("PIPELINE COMPLETED")
+        print("="*70 + "\n")
+        
+        return results

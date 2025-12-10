@@ -1,23 +1,26 @@
 """
-ADAPT-SQL Streamlit Application - Steps 1-4
+ADAPT-SQL Streamlit Application - Streamlined Version
 """
 import streamlit as st
 import json
 import sqlite3
+import pandas as pd
 from pathlib import Path
 from adapt_baseline import ADAPTBaseline
+from datetime import datetime
 
 
-# Page config
 st.set_page_config(
-    page_title="ADAPT-SQL: Steps 1-4",
+    page_title="ADAPT-SQL Pipeline",
     page_icon="🎯",
     layout="wide"
 )
 
-# Initialize session state
+# Session state
 if 'spider_data' not in st.session_state:
     st.session_state.spider_data = None
+if 'batch_results' not in st.session_state:
+    st.session_state.batch_results = []
 
 
 def load_spider_data(json_path: str):
@@ -26,7 +29,7 @@ def load_spider_data(json_path: str):
         with open(json_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        st.error(f"Error loading Spider data: {e}")
+        st.error(f"Error: {e}")
         return None
 
 
@@ -35,7 +38,6 @@ def get_schema_from_sqlite(db_path: str) -> dict:
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [row[0] for row in cursor.fetchall()]
         
@@ -54,16 +56,15 @@ def get_schema_from_sqlite(db_path: str) -> dict:
         conn.close()
         return schema_dict
     except Exception as e:
-        st.error(f"Error reading schema: {e}")
+        st.error(f"Error: {e}")
         return {}
 
 
 def get_foreign_keys_from_sqlite(db_path: str) -> list:
-    """Extract foreign keys from SQLite database"""
+    """Extract foreign keys"""
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [row[0] for row in cursor.fetchall()]
         
@@ -81,170 +82,62 @@ def get_foreign_keys_from_sqlite(db_path: str) -> list:
         conn.close()
         return foreign_keys
     except Exception as e:
-        st.error(f"Error reading foreign keys: {e}")
+        st.error(f"Error: {e}")
         return []
 
 
-def display_step1_tab(step1):
-    """Display Step 1 results"""
-    st.markdown("### 📊 Schema Linking Results")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Tables", len(step1['schema_links']['tables']))
-    
-    with col2:
-        total_cols = sum(len(cols) for cols in step1['schema_links']['columns'].values())
-        st.metric("Columns", total_cols)
-    
-    with col3:
-        st.metric("Foreign Keys", len(step1['schema_links']['foreign_keys']))
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**✅ Relevant Tables**")
-        for table in sorted(step1['schema_links']['tables']):
-            st.success(f"📊 {table}")
-    
-    with col2:
-        st.markdown("**✅ Relevant Columns**")
-        for table, cols in sorted(step1['schema_links']['columns'].items()):
-            with st.expander(f"📋 {table}"):
-                for col in sorted(cols):
-                    st.text(f"  • {col}")
-    
-    with st.expander("🧠 Reasoning"):
-        st.text(step1['reasoning'])
-
-
-def display_step2_tab(step2):
-    """Display Step 2 results"""
-    st.markdown("### 🔍 Complexity Classification Results")
-    
-    complexity = step2['complexity_class'].value
-    
+def display_complexity(complexity):
+    """Display complexity with color"""
     if complexity == "EASY":
-        st.success(f"## 🟢 {complexity}")
+        st.success(f"🟢 {complexity}")
     elif complexity == "NON_NESTED_COMPLEX":
-        st.warning(f"## 🟡 {complexity}")
+        st.warning(f"🟡 {complexity}")
     else:
-        st.error(f"## 🔴 {complexity}")
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**📋 Requirements**")
-        st.write(f"• Tables: {len(step2['required_tables'])}")
-        st.write(f"• JOINs: {'✅' if step2['needs_joins'] else '❌'}")
-        st.write(f"• Subqueries: {'✅' if step2['needs_subqueries'] else '❌'}")
-    
-    with col2:
-        st.markdown("**🔧 Operations**")
-        if step2['aggregations']:
-            st.write(f"• Aggregations: {', '.join(step2['aggregations'])}")
-        st.write(f"• GROUP BY: {'✅' if step2['has_grouping'] else '❌'}")
-        st.write(f"• ORDER BY: {'✅' if step2['has_ordering'] else '❌'}")
-    
-    if step2['sub_questions']:
-        st.markdown("---")
-        st.markdown(f"**🔎 Sub-Questions ({len(step2['sub_questions'])})**")
-        for i, sq in enumerate(step2['sub_questions'], 1):
-            st.write(f"{i}. {sq}")
-    
-    with st.expander("🧠 Reasoning"):
-        st.text(step2['reasoning'])
+        st.error(f"🔴 {complexity}")
 
 
-def display_step3_tab(step3):
-    """Display Step 3 results"""
-    st.markdown("### 💻 Preliminary SQL Prediction")
+def process_single_example(adapt, example, spider_db_dir, k_examples):
+    """Process a single example"""
+    db_path = Path(spider_db_dir) / example['db_id'] / f"{example['db_id']}.sqlite"
     
-    st.markdown("**🎯 Predicted SQL:**")
-    st.code(step3['predicted_sql'], language='sql')
+    if not db_path.exists():
+        return {'status': 'error', 'error': f"Database not found"}
     
-    st.markdown("---")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.markdown("**🗝️ SQL Skeleton:**")
-        st.info(step3['sql_skeleton'])
-    
-    with col2:
-        st.metric("Complexity Score", step3['sql_structure']['complexity_score'])
-    
-    with st.expander("🧠 Reasoning"):
-        st.text(step3['reasoning'])
-
-
-def display_step4_tab(step4):
-    """Display Step 4 results - Similarity Search"""
-    st.markdown("### 🔎 Similar Examples from Vector Database")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.metric("Query", step4['query'][:50] + "..." if len(step4['query']) > 50 else step4['query'])
-    
-    with col2:
-        st.metric("Similar Examples Found", step4['total_found'])
-    
-    st.markdown("---")
-    
-    st.markdown(f"**📊 Top Similar Examples (Ranked by Similarity Score):**")
-    
-    if not step4['similar_examples']:
-        st.warning("No similar examples found in vector database")
-    else:
-        for i, example in enumerate(step4['similar_examples'], 1):
-            similarity_score = example.get('similarity_score', 0)
-            
-            # Color code based on similarity score
-            if similarity_score >= 0.8:
-                score_color = "🟢"
-            elif similarity_score >= 0.6:
-                score_color = "🟡"
-            else:
-                score_color = "🔴"
-            
-            with st.expander(f"{score_color} Example {i}: {example.get('question', 'N/A')[:70]}... (Score: {similarity_score:.4f})"):
-                col1, col2 = st.columns([1, 3])
-                
-                with col1:
-                    st.markdown("**📊 Metadata**")
-                    st.text(f"Database: {example.get('db_id', 'unknown')}")
-                    st.text(f"Similarity: {similarity_score:.4f}")
-                
-                with col2:
-                    st.markdown("**❓ Question:**")
-                    st.info(example.get('question', 'N/A'))
-                
-                st.markdown("**💾 Gold SQL Query:**")
-                st.code(example.get('query', 'N/A'), language='sql')
-    
-    with st.expander("🧠 Reasoning"):
-        st.text(step4['reasoning'])
+    try:
+        start_time = datetime.now()
+        
+        schema_dict = get_schema_from_sqlite(str(db_path))
+        foreign_keys = get_foreign_keys_from_sqlite(str(db_path))
+        
+        result = adapt.run_full_pipeline(
+            example['question'],
+            schema_dict,
+            foreign_keys,
+            k_examples=k_examples
+        )
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        return {
+            'status': 'success',
+            'result': result,
+            'time': processing_time,
+            'complexity': result['step2']['complexity_class'].value
+        }
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
 
 
 def main():
-    st.title("🎯 ADAPT-SQL: Steps 1-4")
-    st.markdown("Schema → Complexity → SQL → Similarity Search")
+    st.title("🎯 ADAPT-SQL Pipeline")
+    st.markdown("End-to-end Text-to-SQL Generation")
     st.markdown("---")
     
     # Sidebar
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        model = st.selectbox(
-            "Ollama Model",
-            ["llama3.2", "codellama", "mistral", "qwen2.5"]
-        )
+        model = st.selectbox("Model", ["llama3.2", "codellama", "mistral", "qwen2.5"])
         
         spider_json_path = st.text_input(
             "Spider dev.json",
@@ -257,102 +150,257 @@ def main():
         )
         
         vector_store_path = st.text_input(
-            "Vector Store Path",
+            "Vector Store",
             value="./vector_store"
         )
         
-        k_examples = st.slider("Similar Examples to Retrieve", 1, 20, 10)
+        k_examples = st.slider("Similar Examples", 1, 20, 10)
         
         st.markdown("---")
         
-        if st.button("📂 Load Spider Dataset"):
+        if st.button("📂 Load Dataset"):
             data = load_spider_data(spider_json_path)
             if data:
                 st.session_state.spider_data = data
-                st.success(f"✅ Loaded {len(data)} examples")
+                st.success(f"✅ {len(data)} examples loaded")
         
         if st.session_state.spider_data:
-            st.info(f"📊 {len(st.session_state.spider_data)} examples loaded")
+            st.info(f"📊 {len(st.session_state.spider_data)} examples")
     
-    # Main content
     if not st.session_state.spider_data:
-        st.info("👈 Please load Spider dataset from sidebar")
+        st.info("👈 Load dataset from sidebar")
         return
     
-    # Example selection
-    st.header("🔍 Select Question")
+    # Mode selection
+    mode = st.radio("Mode", ["Single Query", "Batch Processing", "View Results"], horizontal=True)
     
-    example_idx = st.selectbox(
-        "Spider Example",
-        range(len(st.session_state.spider_data)),
-        format_func=lambda i: f"Ex {i+1}: {st.session_state.spider_data[i]['question'][:80]}..."
-    )
+    if mode == "Single Query":
+        st.header("🔍 Single Query")
+        
+        example_idx = st.selectbox(
+            "Select Example",
+            range(len(st.session_state.spider_data)),
+            format_func=lambda i: f"#{i+1}: {st.session_state.spider_data[i]['question'][:70]}..."
+        )
+        
+        example = st.session_state.spider_data[example_idx]
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("**Question:**")
+            st.info(example['question'])
+        with col2:
+            st.markdown("**Database:**")
+            st.code(example['db_id'])
+        
+        if 'query' in example:
+            with st.expander("Ground Truth SQL"):
+                st.code(example['query'], language='sql')
+        
+        st.markdown("---")
+        
+        if st.button("🚀 Run Pipeline", type="primary", use_container_width=True):
+            with st.spinner("Processing..."):
+                db_path = Path(spider_db_dir) / example['db_id'] / f"{example['db_id']}.sqlite"
+                
+                if not db_path.exists():
+                    st.error("❌ Database not found")
+                    return
+                
+                schema_dict = get_schema_from_sqlite(str(db_path))
+                foreign_keys = get_foreign_keys_from_sqlite(str(db_path))
+                
+                adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
+                
+                result = adapt.run_full_pipeline(
+                    example['question'],
+                    schema_dict,
+                    foreign_keys,
+                    k_examples=k_examples
+                )
+                
+                st.success("✅ Complete!")
+                st.markdown("---")
+                
+                # Display results
+                tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                    "📊 Schema", "🔍 Complexity", "🔎 Examples", "🔀 Route", "✨ SQL"
+                ])
+                
+                with tab1:
+                    st.markdown("### Schema Linking")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Tables", len(result['step1']['schema_links']['tables']))
+                    with col2:
+                        total_cols = sum(len(cols) for cols in result['step1']['schema_links']['columns'].values())
+                        st.metric("Columns", total_cols)
+                    with col3:
+                        st.metric("Foreign Keys", len(result['step1']['schema_links']['foreign_keys']))
+                    
+                    st.markdown("**Tables:**")
+                    for table in sorted(result['step1']['schema_links']['tables']):
+                        st.success(f"📊 {table}")
+                
+                with tab2:
+                    st.markdown("### Complexity Classification")
+                    display_complexity(result['step2']['complexity_class'].value)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"• Tables: {len(result['step2']['required_tables'])}")
+                        st.write(f"• JOINs: {'✅' if result['step2']['needs_joins'] else '❌'}")
+                        st.write(f"• Subqueries: {'✅' if result['step2']['needs_subqueries'] else '❌'}")
+                    with col2:
+                        if result['step2']['aggregations']:
+                            st.write(f"• Aggregations: {', '.join(result['step2']['aggregations'])}")
+                        st.write(f"• GROUP BY: {'✅' if result['step2']['has_grouping'] else '❌'}")
+                    
+                    st.markdown("**Preliminary SQL:**")
+                    st.code(result['step3']['predicted_sql'], language='sql')
+                
+                with tab3:
+                    st.markdown("### Similar Examples")
+                    st.metric("Found", result['step4']['total_found'])
+                    
+                    for i, ex in enumerate(result['step4']['similar_examples'][:5], 1):
+                        score = ex.get('similarity_score', 0)
+                        color = "🟢" if score >= 0.8 else "🟡" if score >= 0.6 else "🔴"
+                        
+                        with st.expander(f"{color} {i}. {ex.get('question', '')[:60]}... ({score:.3f})"):
+                            st.markdown(f"**Question:** {ex.get('question', '')}")
+                            st.code(ex.get('query', ''), language='sql')
+                
+                with tab4:
+                    st.markdown("### Routing Strategy")
+                    strategy = result['step5']['strategy'].value
+                    st.success(f"🎯 {strategy}")
+                    st.info(result['step5']['description'])
+                
+                with tab5:
+                    st.markdown("### Generated SQL")
+                    if result.get('step6a'):
+                        st.code(result['step6a']['generated_sql'], language='sql')
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            conf = result['step6a']['confidence']
+                            if conf >= 0.8:
+                                st.success(f"Confidence: {conf:.1%}")
+                            elif conf >= 0.6:
+                                st.warning(f"Confidence: {conf:.1%}")
+                            else:
+                                st.error(f"Confidence: {conf:.1%}")
+                        with col2:
+                            st.metric("Examples Used", result['step6a']['examples_used'])
+                    else:
+                        st.warning(f"⚠️ {result['step5']['strategy'].value} not implemented yet")
     
-    example = st.session_state.spider_data[example_idx]
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.markdown("### 📋 Question")
-        st.info(example['question'])
-    with col2:
-        st.markdown("### 🗄️ Database")
-        st.code(example['db_id'])
-    
-    if 'query' in example:
-        with st.expander("🎯 Ground Truth SQL"):
-            st.code(example['query'], language='sql')
-    
-    st.markdown("---")
-    
-    # Run ADAPT
-    if st.button("🚀 Run ADAPT Steps 1-4", type="primary", use_container_width=True):
-        with st.spinner("🔄 Processing..."):
-            # Get database
-            db_path = Path(spider_db_dir) / example['db_id'] / f"{example['db_id']}.sqlite"
-            
-            if not db_path.exists():
-                st.error(f"❌ Database not found: {db_path}")
-                return
-            
-            # Get schema and FKs
-            schema_dict = get_schema_from_sqlite(str(db_path))
-            foreign_keys = get_foreign_keys_from_sqlite(str(db_path))
-            
-            # Initialize ADAPT
-            adapt = ADAPTBaseline(
-                model=model,
-                vector_store_path=vector_store_path
+    elif mode == "Batch Processing":
+        st.header("📦 Batch Processing")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            start_idx = st.number_input(
+                "Start Index",
+                min_value=0,
+                max_value=len(st.session_state.spider_data) - 1,
+                value=0
             )
-            
-            # Run all steps
-            result = adapt.run_steps_1_to_4(
-                example['question'],
-                schema_dict,
-                foreign_keys,
-                k_examples=k_examples
+        with col2:
+            batch_size = st.number_input(
+                "Batch Size",
+                min_value=1,
+                max_value=100,
+                value=10
             )
+        
+        end_idx = min(start_idx + batch_size, len(st.session_state.spider_data))
+        st.info(f"Processing examples {start_idx} to {end_idx - 1}")
+        
+        if st.button("🚀 Start Batch", type="primary", use_container_width=True):
+            st.session_state.batch_results = []
             
-            st.success("✅ All Steps Complete!")
-            st.markdown("---")
+            adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
             
-            # Display results in tabs
-            tab1, tab2, tab3, tab4 = st.tabs([
-                "📊 STEP 1: Schema", "🔍 STEP 2: Complexity", "💻 STEP 3: SQL", "🔎 STEP 4: Similar"
-            ])
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-            with tab1:
-                display_step1_tab(result['step1'])
+            for idx in range(start_idx, end_idx):
+                example = st.session_state.spider_data[idx]
+                status_text.text(f"Processing {idx - start_idx + 1}/{end_idx - start_idx}: {example['question'][:50]}...")
+                
+                process_result = process_single_example(adapt, example, spider_db_dir, k_examples)
+                
+                result_entry = {
+                    'index': idx,
+                    'question': example['question'],
+                    'db_id': example.get('db_id', ''),
+                    'status': process_result['status'],
+                    'time': process_result.get('time', 0),
+                    'complexity': process_result.get('complexity', 'N/A'),
+                    'error': process_result.get('error', None)
+                }
+                
+                if process_result['status'] == 'success':
+                    result_entry['generated_sql'] = process_result['result'].get('step6a', {}).get('generated_sql', 'N/A')
+                    result_entry['ground_truth_sql'] = example.get('query', 'N/A')
+                
+                st.session_state.batch_results.append(result_entry)
+                progress_bar.progress((idx - start_idx + 1) / (end_idx - start_idx))
             
-            with tab2:
-                display_step2_tab(result['step2'])
-            
-            with tab3:
-                display_step3_tab(result['step3'])
-            
-            with tab4:
-                display_step4_tab(result['step4'])
+            status_text.text("✅ Complete!")
+            st.success(f"Processed {end_idx - start_idx} examples")
+    
+    else:
+        st.header("📊 Batch Results")
+        
+        if not st.session_state.batch_results:
+            st.info("No results yet")
+            return
+        
+        results = st.session_state.batch_results
+        
+        # Summary
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total", len(results))
+        with col2:
+            successful = sum(1 for r in results if r.get('status') == 'success')
+            st.metric("Success", successful)
+        with col3:
+            failed = sum(1 for r in results if r.get('status') == 'error')
+            st.metric("Failed", failed)
+        with col4:
+            avg_time = sum(r.get('time', 0) for r in results) / len(results)
+            st.metric("Avg Time", f"{avg_time:.1f}s")
+        
+        st.markdown("---")
+        
+        # Table
+        df_data = []
+        for r in results:
+            df_data.append({
+                'Index': r.get('index'),
+                'Question': r.get('question', '')[:50] + '...',
+                'Database': r.get('db_id', ''),
+                'Complexity': r.get('complexity', ''),
+                'Status': r.get('status', ''),
+                'Time': f"{r.get('time', 0):.1f}s"
+            })
+        
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True)
+        
+        # Download
+        st.markdown("---")
+        results_json = json.dumps(results, indent=2)
+        st.download_button(
+            label="📥 Download JSON",
+            data=results_json,
+            file_name=f"adapt_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json"
+        )
 
 
 if __name__ == "__main__":

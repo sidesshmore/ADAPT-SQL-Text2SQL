@@ -1,6 +1,6 @@
 """
-ADAPT-SQL Baseline - Complete Pipeline (Steps 1-7)
-Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + Generation + Validation
+ADAPT-SQL Baseline - Complete Pipeline (Steps 1-8)
+Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + Generation + Validation + Retry
 """
 from typing import Dict, List
 from schema_linking import EnhancedSchemaLinker
@@ -13,13 +13,15 @@ from few_shot import FewShotGenerator
 from intermediate_repr import IntermediateRepresentationGenerator
 from decomposed_generation import DecomposedGenerator
 from validate_sql import SQLValidator
+from validation_feedback_retry import ValidationFeedbackRetry
 
 
 class ADAPTBaseline:
     def __init__(
         self, 
         model: str = "llama3.2",
-        vector_store_path: str = None
+        vector_store_path: str = None,
+        max_retries: int = 2
     ):
         """
         Initialize ADAPT-SQL with Ollama model and optional vector store
@@ -27,15 +29,18 @@ class ADAPTBaseline:
         Args:
             model: Ollama model name (e.g., "llama3.2", "codellama", "mistral")
             vector_store_path: Path to pre-built FAISS vector store
+            max_retries: Maximum validation retry attempts (default: 2)
         """
         self.model = model
+        self.max_retries = max_retries
         
         # Initialize all pipeline components
         self.schema_linker = EnhancedSchemaLinker(model=model)
         self.complexity_classifier = QueryComplexityClassifier(model=model)
         self.preliminary_predictor = PreliminaryPredictor(model=model)
         self.routing_strategy = RoutingStrategy(model=model)
-        self.sql_validator = SQLValidator()  # NEW: Validator doesn't need model
+        self.sql_validator = SQLValidator()
+        self.retry_engine = ValidationFeedbackRetry(model=model, max_retries=max_retries)
         
         # Initialize all three generation strategies
         self.few_shot_generator = FewShotGenerator(model=model)
@@ -64,23 +69,6 @@ class ADAPTBaseline:
         STEP 1: Enhanced Schema Linking
         
         Identifies relevant tables, columns, and foreign keys for the query.
-        
-        Args:
-            natural_query: Natural language question
-            schema_dict: Full database schema
-            foreign_keys: Foreign key relationships
-            
-        Returns:
-            {
-                'pruned_schema': Dict[str, List[Dict]],
-                'schema_links': {
-                    'tables': Set[str],
-                    'columns': Dict[str, Set[str]],
-                    'foreign_keys': List[Dict],
-                    'join_paths': List[List[str]]
-                },
-                'reasoning': str
-            }
         """
         return self.schema_linker.link_schema(
             natural_query, 
@@ -97,23 +85,6 @@ class ADAPTBaseline:
         STEP 2: Query Complexity Classification
         
         Classifies query as EASY, NON_NESTED_COMPLEX, or NESTED_COMPLEX.
-        
-        Args:
-            natural_query: Natural language question
-            step1_result: Output from Step 1
-            
-        Returns:
-            {
-                'complexity_class': ComplexityClass,
-                'required_tables': Set[str],
-                'sub_questions': List[str],
-                'needs_joins': bool,
-                'needs_subqueries': bool,
-                'aggregations': List[str],
-                'has_grouping': bool,
-                'has_ordering': bool,
-                'reasoning': str
-            }
         """
         return self.complexity_classifier.classify_query(
             natural_query,
@@ -130,19 +101,6 @@ class ADAPTBaseline:
         STEP 3: Preliminary SQL Prediction
         
         Generates rough SQL skeleton for example matching.
-        
-        Args:
-            natural_query: Natural language question
-            step1_result: Output from Step 1
-            
-        Returns:
-            {
-                'predicted_sql': str,
-                'sql_skeleton': str,
-                'sql_keywords': List[str],
-                'sql_structure': Dict,
-                'reasoning': str
-            }
         """
         return self.preliminary_predictor.predict_sql_skeleton(
             natural_query,
@@ -159,18 +117,6 @@ class ADAPTBaseline:
         STEP 4: Similarity Search in Vector Database
         
         Retrieves similar examples from the vector store.
-        
-        Args:
-            natural_query: Natural language question
-            k: Number of similar examples to retrieve
-            
-        Returns:
-            {
-                'similar_examples': List[Dict],
-                'reasoning': str,
-                'query': str,
-                'total_found': int
-            }
         """
         if self.example_selector is None:
             return {
@@ -193,16 +139,6 @@ class ADAPTBaseline:
         STEP 5: Route to Appropriate Generation Strategy
         
         Determines which SQL generation strategy to use based on complexity.
-        
-        Args:
-            complexity_class: Query complexity from Step 2
-            
-        Returns:
-            {
-                'strategy': GenerationStrategy,
-                'reasoning': str,
-                'description': str
-            }
         """
         return self.routing_strategy.route_to_strategy(complexity_class.value)
     
@@ -216,19 +152,6 @@ class ADAPTBaseline:
         STEP 6a: Simple Few-Shot Generation (for EASY queries)
         
         Direct SQL generation using similar examples.
-        
-        Args:
-            natural_query: Natural language question
-            step1_result: Output from Step 1
-            step4_result: Output from Step 4
-            
-        Returns:
-            {
-                'generated_sql': str,
-                'confidence': float,
-                'reasoning': str,
-                'examples_used': int
-            }
         """
         return self.few_shot_generator.generate_sql_easy(
             natural_query,
@@ -247,20 +170,6 @@ class ADAPTBaseline:
         STEP 6b: Intermediate Representation Generation (for NON_NESTED_COMPLEX)
         
         Two-stage generation: NatSQL intermediate → Final SQL.
-        
-        Args:
-            natural_query: Natural language question
-            step1_result: Output from Step 1
-            step4_result: Output from Step 4
-            
-        Returns:
-            {
-                'generated_sql': str,
-                'natsql_intermediate': str,
-                'confidence': float,
-                'reasoning': str,
-                'examples_used': int
-            }
         """
         return self.intermediate_generator.generate_sql_with_intermediate(
             natural_query,
@@ -283,22 +192,6 @@ class ADAPTBaseline:
         1. Generate SQL for each sub-question
         2. Create intermediate representation combining sub-queries
         3. Convert to final nested SQL
-        
-        Args:
-            natural_query: Natural language question
-            step1_result: Output from Step 1
-            step2_result: Output from Step 2 (includes sub_questions)
-            step4_result: Output from Step 4
-            
-        Returns:
-            {
-                'generated_sql': str,
-                'sub_sql_list': List[Dict],
-                'natsql_intermediate': str,
-                'confidence': float,
-                'reasoning': str,
-                'examples_used': int
-            }
         """
         return self.decomposed_generator.generate_sql_decomposed(
             natural_query,
@@ -319,25 +212,37 @@ class ADAPTBaseline:
         STEP 7: SQL Validation
         
         Validates generated SQL for syntax, schema compliance, and logical correctness.
-        
-        Args:
-            generated_sql: SQL query from Step 6
-            step1_result: Output from Step 1 (for schema reference)
-            
-        Returns:
-            {
-                'is_valid': bool,
-                'errors': List[Dict],
-                'warnings': List[Dict],
-                'suggestions': List[str],
-                'validation_score': float,
-                'reasoning': str
-            }
         """
         return self.sql_validator.validate_sql_enhanced(
             generated_sql,
             step1_result['pruned_schema'],
             step1_result['schema_links']
+        )
+    
+    def run_step8_retry(
+        self,
+        natural_query: str,
+        step1_result: Dict,
+        generated_sql: str,
+        step7_result: Dict,
+        generation_strategy: str,
+        step4_result: Dict = None
+    ) -> Dict:
+        """
+        STEP 8: Validation-Feedback Retry
+        
+        Regenerates SQL based on validation errors (if any).
+        """
+        original_examples = step4_result['similar_examples'] if step4_result else None
+        
+        return self.retry_engine.retry_with_feedback(
+            question=natural_query,
+            pruned_schema=step1_result['pruned_schema'],
+            schema_links=step1_result['schema_links'],
+            generated_sql=generated_sql,
+            validation_result=step7_result,
+            generation_strategy=generation_strategy,
+            original_examples=original_examples
         )
     
     def run_steps_1_to_4(
@@ -349,20 +254,6 @@ class ADAPTBaseline:
     ) -> Dict:
         """
         Run Steps 1 through 4 of the ADAPT-SQL pipeline
-        
-        Args:
-            natural_query: Natural language question
-            schema_dict: Full database schema
-            foreign_keys: Foreign key relationships
-            k_examples: Number of similar examples to retrieve
-            
-        Returns:
-            {
-                'step1': {...},
-                'step2': {...},
-                'step3': {...},
-                'step4': {...}
-            }
         """
         # Step 1: Schema Linking
         step1_result = self.run_step1_schema_linking(
@@ -396,18 +287,20 @@ class ADAPTBaseline:
         natural_query: str,
         schema_dict: Dict[str, List[Dict]],
         foreign_keys: List[Dict],
-        k_examples: int = 10
+        k_examples: int = 10,
+        enable_retry: bool = True
     ) -> Dict:
         """
-        Run complete ADAPT-SQL pipeline (Steps 1-7)
+        Run complete ADAPT-SQL pipeline (Steps 1-8)
         
-        This is the main entry point for end-to-end SQL generation and validation.
+        This is the main entry point for end-to-end SQL generation with validation and retry.
         
         Args:
             natural_query: Natural language question
             schema_dict: Full database schema
             foreign_keys: Foreign key relationships
             k_examples: Number of similar examples to retrieve
+            enable_retry: Enable validation-feedback retry (Step 8)
             
         Returns:
             {
@@ -419,11 +312,14 @@ class ADAPTBaseline:
                 'step6a': {...} (if EASY),
                 'step6b': {...} (if NON_NESTED_COMPLEX),
                 'step6c': {...} (if NESTED_COMPLEX),
-                'step7': {...}  (validation results)
+                'step7': {...},
+                'step8': {...} (if retry enabled),
+                'final_sql': str,
+                'final_is_valid': bool
             }
         """
         print("\n" + "="*70)
-        print("RUNNING COMPLETE ADAPT-SQL PIPELINE (STEPS 1-7)")
+        print("RUNNING COMPLETE ADAPT-SQL PIPELINE (STEPS 1-8)")
         print("="*70)
         
         # Steps 1-4: Analysis and Example Retrieval
@@ -477,7 +373,7 @@ class ADAPTBaseline:
         else:
             print(f"\n⚠️ Unknown strategy: {strategy.value}")
         
-        # Step 7: Validation (NEW)
+        # Step 7: Validation
         if generated_sql:
             step7_result = self.run_step7_validation(
                 generated_sql,
@@ -494,8 +390,34 @@ class ADAPTBaseline:
                 'reasoning': 'No SQL was generated in Step 6'
             }
         
+        # Step 8: Validation-Feedback Retry (if enabled and needed)
+        final_sql = generated_sql
+        final_is_valid = results['step7']['is_valid']
+        
+        if enable_retry and generated_sql:
+            step8_result = self.run_step8_retry(
+                natural_query,
+                results['step1'],
+                generated_sql,
+                results['step7'],
+                strategy.value,
+                results['step4']
+            )
+            results['step8'] = step8_result
+            
+            # Update final SQL with retry result
+            final_sql = step8_result['final_sql']
+            final_is_valid = step8_result['is_valid']
+        else:
+            results['step8'] = None
+        
+        # Add final results
+        results['final_sql'] = final_sql
+        results['final_is_valid'] = final_is_valid
+        
         print("\n" + "="*70)
-        print("PIPELINE COMPLETED - ALL 7 STEPS ✓")
+        status = "âœ…" if final_is_valid else "⚠️ "
+        print(f"PIPELINE COMPLETED - ALL STEPS {status}")
         print("="*70 + "\n")
         
         return results
@@ -505,30 +427,24 @@ class ADAPTBaseline:
         natural_query: str,
         schema_dict: Dict[str, List[Dict]],
         foreign_keys: List[Dict],
-        k_examples: int = 10
+        k_examples: int = 10,
+        enable_retry: bool = True
     ) -> str:
         """
-        Convenience method: Run full pipeline and return only the generated SQL
+        Convenience method: Run full pipeline and return only the final SQL
         
         Args:
             natural_query: Natural language question
             schema_dict: Full database schema
             foreign_keys: Foreign key relationships
             k_examples: Number of similar examples to retrieve
+            enable_retry: Enable validation-feedback retry
             
         Returns:
-            Generated SQL query as string
+            Final SQL query as string (after validation and potential retry)
         """
         result = self.run_full_pipeline(
-            natural_query, schema_dict, foreign_keys, k_examples
+            natural_query, schema_dict, foreign_keys, k_examples, enable_retry
         )
         
-        # Extract generated SQL from whichever step produced it
-        if result.get('step6a'):
-            return result['step6a']['generated_sql']
-        elif result.get('step6b'):
-            return result['step6b']['generated_sql']
-        elif result.get('step6c'):
-            return result['step6c']['generated_sql']
-        else:
-            return "-- No SQL generated"
+        return result.get('final_sql', '-- No SQL generated')

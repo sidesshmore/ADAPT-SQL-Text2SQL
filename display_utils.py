@@ -25,21 +25,204 @@ def display_validation_badge(is_valid: bool, validation_score: float):
 
 
 def display_schema_tab(result: dict):
-    """Display schema linking results"""
-    st.markdown("### Schema Linking")
+    """
+    Display schema linking results with three-layer breakdown
+    Enhanced version showing Layer 1, Layer 2, and Layer 3 details
+    """
+    st.markdown("### Schema Linking (Three-Layer Approach)")
     
+    # Overall summary metrics
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Tables", len(result['step1']['schema_links']['tables']))
+        st.metric("Final Tables", len(result['step1']['schema_links']['tables']))
     with col2:
         total_cols = sum(len(cols) for cols in result['step1']['schema_links']['columns'].values())
-        st.metric("Columns", total_cols)
+        st.metric("Final Columns", total_cols)
     with col3:
         st.metric("Foreign Keys", len(result['step1']['schema_links']['foreign_keys']))
     
-    st.markdown("**Relevant Tables:**")
-    for table in sorted(result['step1']['schema_links']['tables']):
-        st.success(f"Table: {table}")
+    st.markdown("---")
+    
+    # Check if we have layer details
+    if 'layer_details' in result['step1']:
+        layer_details = result['step1']['layer_details']
+        
+        # Create tabs for each layer
+        layer_tabs = st.tabs(["🔍 Layer 1: Pre-filter", "🤖 Layer 2: LLM Analysis", "✅ Layer 3: Validation", "📊 Final Results"])
+        
+        # ===== LAYER 1: STRING MATCHING PRE-FILTER =====
+        with layer_tabs[0]:
+            st.markdown("#### String Matching Pre-filter")
+            st.caption("Uses fuzzy matching to identify candidate tables and columns")
+            
+            if 'layer1' in layer_details:
+                layer1 = layer_details['layer1']
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Candidate Tables**")
+                    st.info(f"Found {len(layer1['tables'])} candidate tables")
+                    
+                    # Show match details if available
+                    if 'match_details' in layer1 and layer1['match_details']['table_matches']:
+                        for match in layer1['match_details']['table_matches'][:10]:
+                            reason = match['reason']
+                            emoji = "🎯" if reason == "exact" else "🔍"
+                            score = f" ({match['fuzzy_score']:.2f})" if reason == "fuzzy" else ""
+                            st.write(f"{emoji} {match['table']}{score}")
+                    else:
+                        for table in sorted(layer1['tables']):
+                            st.write(f"• {table}")
+                
+                with col2:
+                    st.markdown("**Candidate Columns**")
+                    total_cols = sum(len(cols) for cols in layer1['columns'].values())
+                    st.info(f"Found {total_cols} candidate columns")
+                    
+                    # Show sample columns
+                    if layer1['columns']:
+                        count = 0
+                        for table, cols in sorted(layer1['columns'].items()):
+                            if cols and count < 5:
+                                st.write(f"**{table}**: {', '.join(sorted(list(cols)[:3]))}{'...' if len(cols) > 3 else ''}")
+                                count += 1
+                
+                # Show match reasoning
+                if 'match_details' in layer1:
+                    with st.expander("📋 View Detailed Match Information"):
+                        st.markdown("**Table Matches:**")
+                        for match in layer1['match_details']['table_matches']:
+                            st.caption(f"• {match['table']} - {match['reason']} match (score: {match.get('fuzzy_score', 1.0):.2f})")
+                        
+                        st.markdown("**Column Matches:**")
+                        for i, match in enumerate(layer1['match_details']['column_matches'][:20]):
+                            st.caption(f"• {match['table']}.{match['column']} - {match['reason']} match")
+                            if i >= 19 and len(layer1['match_details']['column_matches']) > 20:
+                                st.caption(f"... and {len(layer1['match_details']['column_matches']) - 20} more")
+                                break
+        
+        # ===== LAYER 2: LLM ANALYSIS =====
+        with layer_tabs[1]:
+            st.markdown("#### LLM Analysis with Pre-filter Hints")
+            st.caption("LLM analyzes question with candidate tables as hints")
+            
+            if 'layer2' in layer_details:
+                layer2 = layer_details['layer2']
+                llm_elements = layer2['parsed_elements']
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**LLM Identified Tables**")
+                    st.info(f"Identified {len(llm_elements['tables'])} tables")
+                    
+                    # Show which were from Layer 1 vs new
+                    layer1_tables = layer_details['layer1']['tables']
+                    for table in sorted(llm_elements['tables']):
+                        if table in layer1_tables:
+                            st.success(f"✓ {table} (from Layer 1)")
+                        else:
+                            st.warning(f"+ {table} (added by LLM)")
+                
+                with col2:
+                    st.markdown("**LLM Identified Columns**")
+                    total_cols = sum(len(cols) for cols in llm_elements['columns'].values())
+                    st.info(f"Identified {total_cols} columns")
+                    
+                    for table, cols in sorted(llm_elements['columns'].items()):
+                        if cols:
+                            st.write(f"**{table}**: {', '.join(sorted(list(cols)[:3]))}{'...' if len(cols) > 3 else ''}")
+                
+                # Show LLM analysis
+                with st.expander("🤖 View Full LLM Analysis"):
+                    st.text(layer2['llm_analysis'])
+        
+        # ===== LAYER 3: POST-VALIDATION =====
+        with layer_tabs[2]:
+            st.markdown("#### Post-Validation & Correction")
+            st.caption("Validates and corrects LLM results against actual schema")
+            
+            if 'layer3' in layer_details:
+                layer3 = layer_details['layer3']
+                
+                # Show corrections if any
+                validation_log = layer3.get('validation_log', [])
+                corrections = [v for v in validation_log if v['status'] == 'corrected']
+                
+                if corrections:
+                    st.warning(f"**{len(corrections)} Corrections Made:**")
+                    for correction in corrections:
+                        if 'corrected_to' in correction:
+                            st.caption(f"• {correction['element']} → {correction['corrected_to']}")
+                else:
+                    st.success("✓ No corrections needed - all LLM outputs were valid")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Validated Tables**")
+                    st.info(f"Final: {len(layer3['tables'])} tables")
+                    for table in sorted(layer3['tables']):
+                        st.write(f"✓ {table}")
+                
+                with col2:
+                    st.markdown("**Validated Columns**")
+                    total_cols = sum(len(cols) for cols in layer3['columns'].values())
+                    st.info(f"Final: {total_cols} columns")
+                    
+                    for table, cols in sorted(layer3['columns'].items()):
+                        if cols:
+                            st.write(f"**{table}**: {', '.join(sorted(list(cols)[:3]))}{'...' if len(cols) > 3 else ''}")
+                
+                # Show detailed validation log
+                with st.expander("📋 View Detailed Validation Log"):
+                    for log_entry in validation_log:
+                        status_emoji = "✅" if log_entry['status'] == 'valid' else "🔧"
+                        in_layer1 = "✓" if log_entry.get('in_layer1', False) else ""
+                        st.caption(f"{status_emoji} {log_entry['element']} - {log_entry['status']} {in_layer1}")
+        
+        # ===== FINAL RESULTS =====
+        with layer_tabs[3]:
+            st.markdown("#### Final Schema Links")
+            st.caption("Pruned schema after three-layer processing")
+            
+            schema_links = result['step1']['schema_links']
+            
+            st.markdown("**Relevant Tables:**")
+            for table in sorted(schema_links['tables']):
+                with st.expander(f"📊 {table}"):
+                    if table in schema_links['columns']:
+                        cols = schema_links['columns'][table]
+                        st.write(f"**Columns ({len(cols)}):**")
+                        for col in sorted(cols):
+                            st.write(f"  • {col}")
+            
+            if schema_links['foreign_keys']:
+                st.markdown("**Foreign Key Relationships:**")
+                for fk in schema_links['foreign_keys']:
+                    st.info(f"{fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}")
+            
+            # Show join paths if available
+            if schema_links.get('join_paths'):
+                st.markdown("**Possible Join Paths:**")
+                for i, path in enumerate(schema_links['join_paths'], 1):
+                    st.caption(f"{i}. {' → '.join(path)}")
+    
+    else:
+        # Fallback to original display if no layer details
+        st.markdown("**Relevant Tables:**")
+        for table in sorted(result['step1']['schema_links']['tables']):
+            st.success(f"Table: {table}")
+        
+        if result['step1']['schema_links']['foreign_keys']:
+            st.markdown("**Foreign Keys:**")
+            for fk in result['step1']['schema_links']['foreign_keys']:
+                st.info(f"{fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}")
+    
+    # Show full reasoning
+    with st.expander("📝 View Full Reasoning"):
+        st.text(result['step1']['reasoning'])
 
 
 def display_complexity_tab(result: dict):

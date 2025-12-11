@@ -27,6 +27,8 @@ from batch_utils import (
     export_summary_csv,
     export_full_json,
     display_error_analysis,
+    display_performance_breakdown,
+    display_score_distribution,
     save_checkpoint,
     load_checkpoint,
     get_checkpoint_files
@@ -178,7 +180,7 @@ def main():
         
         st.markdown("---")
         
-        if st.button("📥 Load Dataset", use_container_width=True):
+        if st.button("🔥 Load Dataset", use_container_width=True):
             data = load_spider_data(spider_json_path)
             if data:
                 st.session_state.spider_data = data
@@ -408,46 +410,104 @@ def main():
         
         results = st.session_state.batch_results
         
-        # Summary statistics
-        display_batch_summary(results)
-        
-        st.markdown("---")
-        
-        # Create tabs for different views
-        summary_tab, details_tab, analysis_tab, export_tab = st.tabs([
+        # Create tabs - UPDATED: Removed Analysis tab, added Query Summary Cards tab
+        summary_tab, cards_tab, details_tab, export_tab = st.tabs([
             "📋 Summary View", 
+            "📇 Query Summary Cards",
             "🔍 Detailed View", 
-            "📈 Analysis", 
             "💾 Export"
         ])
         
+        # =====================================================================
+        # SUMMARY VIEW TAB - ALL STATISTICS HERE
+        # =====================================================================
         with summary_tab:
-            st.markdown("### Distribution Metrics")
+            # Overall summary metrics
+            display_batch_summary(results)
+            
+            st.markdown("---")
             
             # Complexity distribution
+            st.markdown("### 📈 Complexity Distribution")
             display_complexity_distribution(results)
             
             st.markdown("---")
             
             # Execution summary (if enabled)
             if any(r['result'].get('step10_generated') for r in results):
+                st.markdown("### ⚡ Execution Statistics")
                 display_execution_summary(results)
                 st.markdown("---")
             
             # Evaluation summary (if enabled)
             if any(r['result'].get('step11') for r in results):
+                st.markdown("### 🎯 Evaluation Statistics (Spider Metrics)")
                 display_evaluation_summary(results)
                 st.markdown("---")
             
             # Retry summary (if enabled)
             if any(r.get('retry_result') for r in results):
+                st.markdown("### 🔄 Retry Statistics")
                 display_retry_summary(results)
+                st.markdown("---")
+            
+            # Error analysis
+            st.markdown("### 🔍 Error Analysis")
+            display_error_analysis(results)
             
             st.markdown("---")
-            st.markdown("### Query Summary Cards")
+            
+            # Performance breakdown
+            st.markdown("### 📊 Performance Breakdown")
+            display_performance_breakdown(results)
+            
+            st.markdown("---")
+            
+            # Score distribution
+            if any(r['result'].get('step11') for r in results):
+                st.markdown("### 📉 Score Distribution")
+                display_score_distribution(results)
+        
+        # =====================================================================
+        # QUERY SUMMARY CARDS TAB - ALL CARDS HERE
+        # =====================================================================
+        with cards_tab:
+            st.markdown("### 📇 Query Summary Cards")
             st.caption("Quick overview of all processed queries")
             
+            # Optional: Add filter for cards
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                show_valid_only = st.checkbox("Show Valid Only", value=False)
+            with col2:
+                show_ex_success = st.checkbox("Show EX=1.0 Only", value=False)
+            with col3:
+                show_complexity = st.multiselect(
+                    "Filter Complexity",
+                    ["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"],
+                    default=["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"]
+                )
+            
+            st.markdown("---")
+            
+            # Display cards with optional filtering
+            cards_displayed = 0
             for r in results:
+                # Apply filters
+                if show_valid_only and not r['result'].get('final_is_valid', False):
+                    continue
+                
+                if show_ex_success:
+                    ex_acc = r['result'].get('step11', {}).get('execution_accuracy', False)
+                    if not ex_acc:
+                        continue
+                
+                complexity = r['result']['step2']['complexity_class'].value
+                if complexity not in show_complexity:
+                    continue
+                
+                # Display card
                 display_query_summary_card(
                     r['index'], 
                     r['example'], 
@@ -455,13 +515,19 @@ def main():
                     r.get('retry_result')
                 )
                 st.markdown("---")
+                cards_displayed += 1
+            
+            st.caption(f"Showing {cards_displayed} of {len(results)} queries")
         
+        # =====================================================================
+        # DETAILED VIEW TAB - UNCHANGED
+        # =====================================================================
         with details_tab:
-            st.markdown("### Detailed Query Results with Full UI")
+            st.markdown("### 🔍 Detailed Query Results with Full UI")
             st.caption("Each query shows all tabs: Schema, Complexity, Examples, Route, SQL, Validation, Execution, Evaluation, Retry History")
             
             # Filter options
-            st.markdown("#### 🔍 Filter Options")
+            st.markdown("#### 🔎 Filter Options")
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -514,67 +580,9 @@ def main():
                     r.get('retry_result')
                 )
         
-        with analysis_tab:
-            st.markdown("### 📈 Detailed Analysis")
-            
-            # Error analysis
-            display_error_analysis(results)
-            
-            st.markdown("---")
-            
-            # Additional metrics
-            st.markdown("### 📊 Performance Breakdown")
-            
-            if any(r['result'].get('step11') for r in results):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("**Execution Accuracy (EX) Distribution**")
-                    ex_perfect = sum(1 for r in results if r['result'].get('step11', {}).get('execution_accuracy'))
-                    ex_failed = sum(1 for r in results if r['result'].get('step11') and not r['result']['step11'].get('execution_accuracy'))
-                    
-                    if ex_perfect + ex_failed > 0:
-                        ex_pct = (ex_perfect / (ex_perfect + ex_failed) * 100)
-                        st.metric("EX = 1.0 Rate", f"{ex_pct:.1f}%", f"{ex_perfect}/{ex_perfect + ex_failed}")
-                        st.progress(ex_pct / 100)
-                
-                with col2:
-                    st.markdown("**Exact-Set-Match (EM) Distribution**")
-                    em_perfect = sum(1 for r in results if r['result'].get('step11', {}).get('exact_set_match'))
-                    em_failed = sum(1 for r in results if r['result'].get('step11') and not r['result']['step11'].get('exact_set_match'))
-                    
-                    if em_perfect + em_failed > 0:
-                        em_pct = (em_perfect / (em_perfect + em_failed) * 100)
-                        st.metric("EM = 1.0 Rate", f"{em_pct:.1f}%", f"{em_perfect}/{em_perfect + em_failed}")
-                        st.progress(em_pct / 100)
-            
-            st.markdown("---")
-            
-            # Score distribution
-            if any(r['result'].get('step11') for r in results):
-                st.markdown("### 📉 Score Distribution")
-                
-                scores = [r['result']['step11']['evaluation_score'] for r in results if r['result'].get('step11')]
-                
-                if scores:
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        perfect = sum(1 for s in scores if s >= 0.9)
-                        st.metric("Perfect (≥0.9)", perfect, f"{perfect/len(scores)*100:.1f}%")
-                    
-                    with col2:
-                        good = sum(1 for s in scores if 0.7 <= s < 0.9)
-                        st.metric("Good (0.7-0.9)", good, f"{good/len(scores)*100:.1f}%")
-                    
-                    with col3:
-                        fair = sum(1 for s in scores if 0.5 <= s < 0.7)
-                        st.metric("Fair (0.5-0.7)", fair, f"{fair/len(scores)*100:.1f}%")
-                    
-                    with col4:
-                        poor = sum(1 for s in scores if s < 0.5)
-                        st.metric("Poor (<0.5)", poor, f"{poor/len(scores)*100:.1f}%")
-        
+        # =====================================================================
+        # EXPORT TAB - UNCHANGED
+        # =====================================================================
         with export_tab:
             st.markdown("### 💾 Export Results")
             
@@ -584,7 +592,7 @@ def main():
                 st.markdown("#### 📄 CSV Export")
                 st.caption("Summary data suitable for spreadsheets and analysis")
                 
-                if st.button("📥 Generate CSV", use_container_width=True):
+                if st.button("🔥 Generate CSV", use_container_width=True):
                     csv = export_summary_csv(results)
                     st.download_button(
                         label="⬇️ Download CSV",
@@ -598,7 +606,7 @@ def main():
                 st.markdown("#### 📋 JSON Export")
                 st.caption("Complete data including all steps and reasoning")
                 
-                if st.button("📥 Generate JSON", use_container_width=True):
+                if st.button("🔥 Generate JSON", use_container_width=True):
                     json_str = export_full_json(results)
                     st.download_button(
                         label="⬇️ Download JSON",

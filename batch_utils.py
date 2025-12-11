@@ -171,7 +171,7 @@ def cleanup_old_checkpoints(output_dir: Path, keep_latest: int = 5):
 
 
 # ============================================================================
-# DISPLAY FUNCTIONS
+# SUMMARY STATISTICS DISPLAY FUNCTIONS
 # ============================================================================
 
 def display_batch_summary(results: List[Dict]):
@@ -333,6 +333,100 @@ def display_retry_summary(results: List[Dict]):
         st.metric("Retry Success Rate", f"{success_rate:.1f}%")
 
 
+def display_error_analysis(results: List[Dict]):
+    """Display analysis of common errors"""
+    st.markdown("### 🔍 Error Analysis")
+    
+    # Collect all errors
+    error_types = {}
+    for r in results:
+        errors = r['result'].get('step7', {}).get('errors', [])
+        for error in errors:
+            error_type = error['type']
+            error_types[error_type] = error_types.get(error_type, 0) + 1
+    
+    if not error_types:
+        st.success("✅ No validation errors found!")
+        return
+    
+    # Display error distribution
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Error Type Distribution:**")
+        for error_type, count in sorted(error_types.items(), key=lambda x: x[1], reverse=True):
+            st.write(f"- {error_type}: {count}")
+    
+    with col2:
+        st.markdown("**Most Common Errors:**")
+        top_errors = sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:5]
+        for i, (error_type, count) in enumerate(top_errors, 1):
+            st.write(f"{i}. {error_type} ({count} occurrences)")
+
+
+def display_performance_breakdown(results: List[Dict]):
+    """Display performance breakdown metrics"""
+    st.markdown("### 📊 Performance Breakdown")
+    
+    if any(r['result'].get('step11') for r in results):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Execution Accuracy (EX) Distribution**")
+            ex_perfect = sum(1 for r in results if r['result'].get('step11', {}).get('execution_accuracy'))
+            ex_failed = sum(1 for r in results if r['result'].get('step11') and not r['result']['step11'].get('execution_accuracy'))
+            
+            if ex_perfect + ex_failed > 0:
+                ex_pct = (ex_perfect / (ex_perfect + ex_failed) * 100)
+                st.metric("EX = 1.0 Rate", f"{ex_pct:.1f}%", f"{ex_perfect}/{ex_perfect + ex_failed}")
+                st.progress(ex_pct / 100)
+        
+        with col2:
+            st.markdown("**Exact-Set-Match (EM) Distribution**")
+            em_perfect = sum(1 for r in results if r['result'].get('step11', {}).get('exact_set_match'))
+            em_failed = sum(1 for r in results if r['result'].get('step11') and not r['result']['step11'].get('exact_set_match'))
+            
+            if em_perfect + em_failed > 0:
+                em_pct = (em_perfect / (em_perfect + em_failed) * 100)
+                st.metric("EM = 1.0 Rate", f"{em_pct:.1f}%", f"{em_perfect}/{em_perfect + em_failed}")
+                st.progress(em_pct / 100)
+    else:
+        st.info("Evaluation not performed")
+
+
+def display_score_distribution(results: List[Dict]):
+    """Display score distribution"""
+    st.markdown("### 📉 Score Distribution")
+    
+    scores = [r['result']['step11']['evaluation_score'] for r in results if r['result'].get('step11')]
+    
+    if not scores:
+        st.info("No evaluation scores available")
+        return
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        perfect = sum(1 for s in scores if s >= 0.9)
+        st.metric("Perfect (≥0.9)", perfect, f"{perfect/len(scores)*100:.1f}%")
+    
+    with col2:
+        good = sum(1 for s in scores if 0.7 <= s < 0.9)
+        st.metric("Good (0.7-0.9)", good, f"{good/len(scores)*100:.1f}%")
+    
+    with col3:
+        fair = sum(1 for s in scores if 0.5 <= s < 0.7)
+        st.metric("Fair (0.5-0.7)", fair, f"{fair/len(scores)*100:.1f}%")
+    
+    with col4:
+        poor = sum(1 for s in scores if s < 0.5)
+        st.metric("Poor (<0.5)", poor, f"{poor/len(scores)*100:.1f}%")
+
+
+# ============================================================================
+# QUERY CARD DISPLAY FUNCTIONS
+# ============================================================================
+
 def display_query_summary_card(idx: int, example: Dict, result: Dict, retry_result: Dict = None):
     """Display a summary card for a single query"""
     # Get complexity
@@ -468,6 +562,10 @@ def display_query_details(idx: int, example: Dict, result: Dict, retry_result: D
             with tabs[8]:
                 display_retry_history_tab(retry_result)
 
+
+# ============================================================================
+# FILTER AND EXPORT FUNCTIONS
+# ============================================================================
 
 def filter_results(results: List[Dict], filter_complexity: List[str], filter_validity: str, 
                    filter_execution: str = "All", filter_evaluation: str = "All") -> List[Dict]:
@@ -643,37 +741,6 @@ def export_full_json(results: List[Dict]) -> str:
         })
     
     return json.dumps(export_data, indent=2)
-
-
-def display_error_analysis(results: List[Dict]):
-    """Display analysis of common errors"""
-    st.markdown("### 🔍 Error Analysis")
-    
-    # Collect all errors
-    error_types = {}
-    for r in results:
-        errors = r['result'].get('step7', {}).get('errors', [])
-        for error in errors:
-            error_type = error['type']
-            error_types[error_type] = error_types.get(error_type, 0) + 1
-    
-    if not error_types:
-        st.success("✅ No validation errors found!")
-        return
-    
-    # Display error distribution
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**Error Type Distribution:**")
-        for error_type, count in sorted(error_types.items(), key=lambda x: x[1], reverse=True):
-            st.write(f"- {error_type}: {count}")
-    
-    with col2:
-        st.markdown("**Most Common Errors:**")
-        top_errors = sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:5]
-        for i, (error_type, count) in enumerate(top_errors, 1):
-            st.write(f"{i}. {error_type} ({count} occurrences)")
 
 
 def display_checkpoint_status(current_count: int, total_count: int, checkpoint_interval: int = 25):

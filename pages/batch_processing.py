@@ -5,7 +5,7 @@ Process multiple queries with execution, evaluation, and retry support
 import streamlit as st
 import json
 import sqlite3
-from pathlib import Path
+from pathlib import Pathmax
 from datetime import datetime
 import sys
 
@@ -142,7 +142,7 @@ def main():
         enable_full_retry = st.checkbox("Enable Full Pipeline Retry", value=False)
         
         if enable_full_retry:
-            max_full_retries = st.slider("Max Full Retries", 0, 3, 1)
+            max_full_retries = st.slider("Max Full Retries", 0, 3, 3)
             min_eval_score = st.slider("Min Evaluation Score", 0.0, 1.0, 0.5, 0.1)
         
         st.markdown("---")

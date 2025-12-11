@@ -130,7 +130,7 @@ def main():
         st.markdown("---")
         st.markdown("### Batch Settings")
         
-        num_queries = st.number_input("Number of Queries", min_value=1, max_value=100, value=5)
+        num_queries = st.number_input("Number of Queries", min_value=1, max_value=1000, value=50)
         start_idx = st.number_input("Start Index", min_value=0, value=0)
         
         st.markdown("---")

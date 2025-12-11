@@ -1,11 +1,11 @@
 """
-ADAPT-SQL Batch Processing Page with Incremental Saving
-Process multiple queries with automatic checkpoints every 25 queries
+ADAPT-SQL Streamlined Batch Processing
+Focus on comprehensive at-a-glance statistics
+Auto-generates CSV on completion
 """
 import streamlit as st
 import json
 import sqlite3
-import pickle
 from pathlib import Path
 from datetime import datetime
 import sys
@@ -16,19 +16,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 from adapt_baseline import ADAPTBaseline
 from enhanced_retry_engine import EnhancedRetryEngine
 from batch_utils import (
-    display_batch_summary,
-    display_complexity_distribution,
-    display_execution_summary,
-    display_evaluation_summary,
-    display_retry_summary,
-    display_query_summary_card,
-    display_query_details,
-    filter_results,
-    export_summary_csv,
-    export_full_json,
-    display_error_analysis,
-    display_performance_breakdown,
-    display_score_distribution,
+    display_comprehensive_statistics,
+    generate_comprehensive_csv,
     save_checkpoint,
     load_checkpoint,
     get_checkpoint_files
@@ -106,8 +95,8 @@ def get_foreign_keys_from_sqlite(db_path: str) -> list:
 
 
 def main():
-    st.title("📦 Batch Processing - ADAPT-SQL")
-    st.markdown("Process multiple queries with automatic checkpoints every 25 queries")
+    st.title("📦 ADAPT-SQL Batch Processing")
+    st.markdown("Process multiple queries with automatic checkpoints and comprehensive statistics")
     st.markdown("---")
     
     # Configuration sidebar
@@ -127,11 +116,11 @@ def main():
         )
         
         vector_store_path = st.text_input(
-            "🔍 Vector Store",
+            "📚 Vector Store",
             value="./vector_store"
         )
         
-        k_examples = st.slider("📚 Similar Examples", 1, 20, 10)
+        k_examples = st.slider("📖 Similar Examples", 1, 20, 10)
         
         st.markdown("---")
         st.markdown("### 🎯 Batch Settings")
@@ -140,47 +129,62 @@ def main():
         start_idx = st.number_input("Start Index", min_value=0, value=0)
         
         checkpoint_interval = st.number_input("Checkpoint Interval", min_value=5, max_value=100, value=25, step=5)
-        st.caption(f"Results will be saved every {checkpoint_interval} queries")
+        st.caption(f"Saves progress every {checkpoint_interval} queries")
         
-        output_dir = st.text_input("Output Directory", value="./batch_results")
+        # Fixed directories
+        checkpoint_dir = "./batch_results"
+        results_csv_dir = "./results"
+        
+        st.info(f"📂 Checkpoints: `{checkpoint_dir}`")
+        st.info(f"📊 CSV Results: `{results_csv_dir}`")
         
         st.markdown("---")
         st.markdown("### 🔧 Processing Options")
         
-        enable_validation_retry = st.checkbox("✅ Enable Validation Retry (Step 8)", value=True)
-        enable_execution = st.checkbox("⚡ Enable SQL Execution (Step 10)", value=True)
-        enable_evaluation = st.checkbox("📊 Enable Evaluation (Step 11)", value=True)
-        enable_full_retry = st.checkbox("🔄 Enable Full Pipeline Retry", value=True)
+        enable_validation_retry = st.checkbox("✅ Validation Retry (Step 8)", value=True)
+        enable_execution = st.checkbox("⚡ SQL Execution (Step 10)", value=True)
+        enable_evaluation = st.checkbox("📊 Evaluation (Step 11)", value=True)
+        enable_full_retry = st.checkbox("🔄 Full Pipeline Retry", value=True)
         
         if enable_full_retry:
             st.markdown("**Retry Settings:**")
             max_full_retries = st.slider("Max Full Retries", 0, 5, 2)
             min_eval_score = st.slider("Min Evaluation Score", 0.0, 1.0, 0.8, 0.05)
-            st.caption(f"Will retry if EX=0 or score < {min_eval_score}")
+            st.caption(f"Retries if EX=0 or score < {min_eval_score}")
         
         st.markdown("---")
         
         # Checkpoint management
         st.markdown("### 💾 Checkpoint Management")
         
-        checkpoint_dir = Path(output_dir)
-        checkpoint_files = get_checkpoint_files(checkpoint_dir)
+        checkpoint_path = Path(checkpoint_dir)
+        checkpoint_files = get_checkpoint_files(checkpoint_path)
         
         if checkpoint_files:
-            st.info(f"Found {len(checkpoint_files)} checkpoint files")
+            st.success(f"✅ Found {len(checkpoint_files)} checkpoint files")
             
-            if st.button("🔄 Resume from Latest Checkpoint"):
-                latest = checkpoint_files[-1]
+            # Show most recent checkpoint info
+            latest = checkpoint_files[0]
+            checkpoint_data = load_checkpoint(latest)
+            if checkpoint_data:
+                st.caption(f"Latest: {checkpoint_data['num_results']} queries")
+                st.caption(f"Saved: {checkpoint_data['saved_at']}")
+            
+            if st.button("🔄 Resume from Latest", use_container_width=True):
                 checkpoint_data = load_checkpoint(latest)
                 if checkpoint_data:
                     st.session_state.batch_results = checkpoint_data['results']
                     st.session_state.batch_timestamp = checkpoint_data['timestamp']
                     st.session_state.checkpoint_resumed = True
-                    st.success(f"✅ Resumed from checkpoint with {len(checkpoint_data['results'])} results")
+                    st.success(f"✅ Resumed: {len(checkpoint_data['results'])} results")
+        else:
+            st.info("📂 No checkpoints found")
+            st.caption("Checkpoints will appear here after running batch processing")
+            st.caption(f"Looking in: {checkpoint_path.absolute()}")
         
         st.markdown("---")
         
-        if st.button("🔥 Load Dataset", use_container_width=True):
+        if st.button("📥 Load Dataset", use_container_width=True):
             data = load_spider_data(spider_json_path)
             if data:
                 st.session_state.spider_data = data
@@ -193,45 +197,45 @@ def main():
     if 'spider_data' not in st.session_state or not st.session_state.spider_data:
         st.info("👈 Load dataset from sidebar to begin")
         
-        col1, col2 = st.columns(2)
+        st.markdown("""
+        ### 🚀 Quick Start Guide:
         
-        with col1:
-            st.markdown("""
-            ### 🚀 How to use:
-            1. Configure paths in sidebar
-            2. Click "Load Dataset"
-            3. Set number of queries and start index
-            4. Set checkpoint interval (default: 25)
-            5. Choose output directory
-            6. Enable processing options
-            7. Click "Run Batch Processing"
-            
-            ### 💾 Automatic Checkpoints:
-            - Results saved every N queries
-            - Resume from last checkpoint if interrupted
-            - No data loss on failures
-            """)
+        1. **Configure Paths** (sidebar)
+           - Set Spider dev.json path
+           - Set database directory
+           - Set vector store path
         
-        with col2:
-            st.markdown("""
-            ### 🎯 Processing Options:
-            - **Validation Retry**: Fix errors (Step 8)
-            - **Execution**: Run SQL on database (Step 10)
-            - **Evaluation**: Compare with ground truth (Step 11)
-            - **Full Retry**: Retry if EX=0 or score low
-            
-            ### 📊 View Features:
-            - Summary cards for all queries
-            - Full detailed view with all tabs
-            - Spider benchmark metrics (EX, EM)
-            - Retry history with improvements
-            - Export to CSV/JSON
-            """)
+        2. **Load Dataset**
+           - Click "Load Dataset" button
+        
+        3. **Configure Batch**
+           - Set number of queries
+           - Set checkpoint interval (default: 25)
+        
+        4. **Enable Options**
+           - Validation retry (Step 8)
+           - Execution (Step 10) 
+           - Evaluation (Step 11)
+           - Full pipeline retry
+        
+        5. **Run Processing**
+           - Click "Run Batch Processing"
+           - CSV auto-generated on completion
+        
+        ### 📊 Features:
+        
+        - **Comprehensive Statistics**: At-a-glance system performance overview
+        - **Automatic Checkpoints**: Progress saved to `./batch_results` every N queries
+        - **Resume Capability**: Continue from last checkpoint
+        - **Auto CSV Export**: Results automatically saved to `./results`
+        - **Spider Metrics**: Official EX and EM benchmark scores
+        - **Error Analysis**: Detailed breakdown of common issues
+        """)
         
         return
     
     # Batch processing section
-    st.markdown("## 🎯 Batch Processing Configuration")
+    st.markdown("## 🎯 Batch Configuration")
     
     end_idx = min(start_idx + num_queries, len(st.session_state.spider_data))
     
@@ -245,28 +249,28 @@ def main():
     with col4:
         st.metric("Checkpoint Every", checkpoint_interval)
     
-    # Display processing options summary
-    st.markdown("**Enabled Options:**")
-    options = []
+    # Display enabled options
+    st.markdown("**Enabled:**")
+    options_text = []
     if enable_validation_retry:
-        options.append("✅ Validation Retry")
+        options_text.append("✅ Validation Retry")
     if enable_execution:
-        options.append("⚡ Execution")
+        options_text.append("⚡ Execution")
     if enable_evaluation:
-        options.append("📊 Evaluation")
+        options_text.append("📊 Evaluation")
     if enable_full_retry:
-        options.append(f"🔄 Full Retry (max {max_full_retries}, min score {min_eval_score})")
+        options_text.append(f"🔄 Full Retry (max {max_full_retries}, score ≥{min_eval_score})")
     
-    if options:
-        for opt in options:
-            st.caption(opt)
+    st.caption(" | ".join(options_text))
     
     st.markdown("---")
     
     if st.button("🚀 Run Batch Processing", type="primary", use_container_width=True):
-        # Create output directory
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
+        # Create output directories
+        checkpoint_path = Path(checkpoint_dir)
+        results_path = Path(results_csv_dir)
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
+        results_path.mkdir(parents=True, exist_ok=True)
         
         # Initialize ADAPT
         with st.spinner("Initializing ADAPT-SQL pipeline..."):
@@ -285,16 +289,13 @@ def main():
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Results container
-        results_container = st.container()
-        
         # Initialize or resume results
         if 'batch_results' not in st.session_state or not st.session_state.get('checkpoint_resumed', False):
             results = []
             st.session_state.batch_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         else:
             results = st.session_state.batch_results
-            st.info(f"▶️ Resuming from checkpoint with {len(results)} existing results")
+            st.info(f"▶️ Resuming from checkpoint: {len(results)} existing results")
             st.session_state.checkpoint_resumed = False
         
         # Process each query
@@ -305,7 +306,7 @@ def main():
             
             example = st.session_state.spider_data[i]
             
-            # Update status
+            # Update progress
             progress = (i - start_idx + 1) / (end_idx - start_idx)
             progress_bar.progress(progress)
             status_text.markdown(f"**Processing {i - start_idx + 1}/{end_idx - start_idx}:** {example['question'][:80]}...")
@@ -342,7 +343,6 @@ def main():
                     )
                     result = retry_result['final_result']
                     
-                    # Store full retry result
                     results.append({
                         'index': i,
                         'example': example,
@@ -378,18 +378,18 @@ def main():
             
             # Save checkpoint every N queries
             if len(results) % checkpoint_interval == 0:
-                checkpoint_path = save_checkpoint(
+                checkpoint_file = save_checkpoint(
                     results, 
                     st.session_state.batch_timestamp,
-                    output_path
+                    checkpoint_path
                 )
-                status_text.markdown(f"💾 **Checkpoint saved:** {checkpoint_path.name} ({len(results)} results)")
+                status_text.markdown(f"💾 **Checkpoint saved:** {len(results)} results")
         
         # Save final checkpoint
         final_checkpoint = save_checkpoint(
             results,
             st.session_state.batch_timestamp,
-            output_path,
+            checkpoint_path,
             final=True
         )
         
@@ -399,252 +399,41 @@ def main():
         # Store results in session state
         st.session_state.batch_results = results
         
+        # Generate CSV automatically
+        st.markdown("---")
+        st.markdown("### 💾 Generating Results CSV...")
+        
+        with st.spinner("Creating comprehensive CSV report..."):
+            csv_path = generate_comprehensive_csv(
+                results,
+                st.session_state.batch_timestamp,
+                results_path
+            )
+        
         st.success(f"✅ Batch processing complete! Processed {len(results)} queries.")
-        st.info(f"💾 Final results saved to: {final_checkpoint}")
+        st.success(f"📊 CSV saved to: **{csv_path}**")
+        st.info(f"💾 Checkpoint saved to: {final_checkpoint}")
+        
+        # Offer download button
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            csv_data = f.read()
+        
+        st.download_button(
+            label="⬇️ Download Results CSV",
+            data=csv_data,
+            file_name=csv_path.name,
+            mime="text/csv",
+            use_container_width=True
+        )
     
     # Display results if available
     if 'batch_results' in st.session_state:
         st.markdown("---")
-        st.markdown(f"## 📊 Results Summary")
-        st.caption(f"Generated at {st.session_state.batch_timestamp}")
         
         results = st.session_state.batch_results
         
-        # Create tabs - UPDATED: Removed Analysis tab, added Query Summary Cards tab
-        summary_tab, cards_tab, details_tab, export_tab = st.tabs([
-            "📋 Summary View", 
-            "📇 Query Summary Cards",
-            "🔍 Detailed View", 
-            "💾 Export"
-        ])
-        
-        # =====================================================================
-        # SUMMARY VIEW TAB - ALL STATISTICS HERE
-        # =====================================================================
-        with summary_tab:
-            # Overall summary metrics
-            display_batch_summary(results)
-            
-            st.markdown("---")
-            
-            # Complexity distribution
-            st.markdown("### 📈 Complexity Distribution")
-            display_complexity_distribution(results)
-            
-            st.markdown("---")
-            
-            # Execution summary (if enabled)
-            if any(r['result'].get('step10_generated') for r in results):
-                st.markdown("### ⚡ Execution Statistics")
-                display_execution_summary(results)
-                st.markdown("---")
-            
-            # Evaluation summary (if enabled)
-            if any(r['result'].get('step11') for r in results):
-                st.markdown("### 🎯 Evaluation Statistics (Spider Metrics)")
-                display_evaluation_summary(results)
-                st.markdown("---")
-            
-            # Retry summary (if enabled)
-            if any(r.get('retry_result') for r in results):
-                st.markdown("### 🔄 Retry Statistics")
-                display_retry_summary(results)
-                st.markdown("---")
-            
-            # Error analysis
-            st.markdown("### 🔍 Error Analysis")
-            display_error_analysis(results)
-            
-            st.markdown("---")
-            
-            # Performance breakdown
-            st.markdown("### 📊 Performance Breakdown")
-            display_performance_breakdown(results)
-            
-            st.markdown("---")
-            
-            # Score distribution
-            if any(r['result'].get('step11') for r in results):
-                st.markdown("### 📉 Score Distribution")
-                display_score_distribution(results)
-        
-        # =====================================================================
-        # QUERY SUMMARY CARDS TAB - ALL CARDS HERE
-        # =====================================================================
-        with cards_tab:
-            st.markdown("### 📇 Query Summary Cards")
-            st.caption("Quick overview of all processed queries")
-            
-            # Optional: Add filter for cards
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                show_valid_only = st.checkbox("Show Valid Only", value=False)
-            with col2:
-                show_ex_success = st.checkbox("Show EX=1.0 Only", value=False)
-            with col3:
-                show_complexity = st.multiselect(
-                    "Filter Complexity",
-                    ["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"],
-                    default=["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"]
-                )
-            
-            st.markdown("---")
-            
-            # Display cards with optional filtering
-            cards_displayed = 0
-            for r in results:
-                # Apply filters
-                if show_valid_only and not r['result'].get('final_is_valid', False):
-                    continue
-                
-                if show_ex_success:
-                    ex_acc = r['result'].get('step11', {}).get('execution_accuracy', False)
-                    if not ex_acc:
-                        continue
-                
-                complexity = r['result']['step2']['complexity_class'].value
-                if complexity not in show_complexity:
-                    continue
-                
-                # Display card
-                display_query_summary_card(
-                    r['index'], 
-                    r['example'], 
-                    r['result'],
-                    r.get('retry_result')
-                )
-                st.markdown("---")
-                cards_displayed += 1
-            
-            st.caption(f"Showing {cards_displayed} of {len(results)} queries")
-        
-        # =====================================================================
-        # DETAILED VIEW TAB - UNCHANGED
-        # =====================================================================
-        with details_tab:
-            st.markdown("### 🔍 Detailed Query Results with Full UI")
-            st.caption("Each query shows all tabs: Schema, Complexity, Examples, Route, SQL, Validation, Execution, Evaluation, Retry History")
-            
-            # Filter options
-            st.markdown("#### 🔎 Filter Options")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                filter_complexity = st.multiselect(
-                    "Complexity",
-                    ["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"],
-                    default=["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"]
-                )
-            
-            with col2:
-                filter_validity = st.selectbox(
-                    "Validity",
-                    ["All", "Valid Only", "Invalid Only"],
-                    index=0
-                )
-            
-            with col3:
-                filter_execution = st.selectbox(
-                    "Execution",
-                    ["All", "Success Only", "Failed Only"],
-                    index=0
-                )
-            
-            with col4:
-                filter_evaluation = st.selectbox(
-                    "Evaluation",
-                    ["All", "EX = 1.0 Only", "EX = 0.0 Only", "High Score (>=0.7)", "Low Score (<0.5)"],
-                    index=0
-                )
-            
-            # Apply filters
-            filtered_results = filter_results(
-                results, 
-                filter_complexity, 
-                filter_validity,
-                filter_execution,
-                filter_evaluation
-            )
-            
-            st.info(f"Showing {len(filtered_results)} of {len(results)} queries")
-            
-            st.markdown("---")
-            
-            # Display detailed results
-            for r in filtered_results:
-                display_query_details(
-                    r['index'], 
-                    r['example'], 
-                    r['result'],
-                    r.get('retry_result')
-                )
-        
-        # =====================================================================
-        # EXPORT TAB - UNCHANGED
-        # =====================================================================
-        with export_tab:
-            st.markdown("### 💾 Export Results")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### 📄 CSV Export")
-                st.caption("Summary data suitable for spreadsheets and analysis")
-                
-                if st.button("🔥 Generate CSV", use_container_width=True):
-                    csv = export_summary_csv(results)
-                    st.download_button(
-                        label="⬇️ Download CSV",
-                        data=csv,
-                        file_name=f"adapt_sql_batch_{st.session_state.batch_timestamp.replace(' ', '_').replace(':', '-')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-            
-            with col2:
-                st.markdown("#### 📋 JSON Export")
-                st.caption("Complete data including all steps and reasoning")
-                
-                if st.button("🔥 Generate JSON", use_container_width=True):
-                    json_str = export_full_json(results)
-                    st.download_button(
-                        label="⬇️ Download JSON",
-                        data=json_str,
-                        file_name=f"adapt_sql_batch_{st.session_state.batch_timestamp.replace(' ', '_').replace(':', '-')}.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
-            
-            st.markdown("---")
-            
-            st.markdown("#### 📊 Export Contents")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**CSV includes:**")
-                st.markdown("""
-                - Question and database
-                - Complexity and strategy
-                - Generated and ground truth SQL
-                - Validation scores and errors
-                - Execution success and time
-                - Evaluation scores (EX, EM)
-                - Retry attempts and success
-                """)
-            
-            with col2:
-                st.markdown("**JSON includes:**")
-                st.markdown("""
-                - All CSV data PLUS:
-                - Complete reasoning for each step
-                - Schema linking details
-                - Similar examples used
-                - Full validation feedback
-                - Retry history with improvements
-                - All intermediate representations
-                """)
+        # Display comprehensive statistics
+        display_comprehensive_statistics(results)
 
 
 if __name__ == "__main__":

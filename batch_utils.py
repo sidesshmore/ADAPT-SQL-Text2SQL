@@ -1,12 +1,178 @@
 """
-Batch Processing Utilities for ADAPT-SQL
-Updated with full UI display matching app.py
+Batch Processing Utilities for ADAPT-SQL with Checkpoint Support
+Includes automatic saving and resuming functionality
 """
 import streamlit as st
 import pandas as pd
 import json
-from typing import Dict, List
+import pickle
+from typing import Dict, List, Optional
+from pathlib import Path
+from datetime import datetime
 
+# ============================================================================
+# CHECKPOINT MANAGEMENT
+# ============================================================================
+
+def save_checkpoint(results: List[Dict], timestamp: str, output_dir: Path, final: bool = False) -> Path:
+    """
+    Save checkpoint to disk
+    
+    Args:
+        results: List of result dictionaries
+        timestamp: Timestamp string for this batch
+        output_dir: Directory to save checkpoint
+        final: Whether this is the final checkpoint
+    
+    Returns:
+        Path to saved checkpoint file
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    if final:
+        checkpoint_name = f"final_checkpoint_{timestamp.replace(' ', '_').replace(':', '-')}.pkl"
+    else:
+        checkpoint_name = f"checkpoint_{len(results)}_{timestamp.replace(' ', '_').replace(':', '-')}.pkl"
+    
+    checkpoint_path = output_dir / checkpoint_name
+    
+    checkpoint_data = {
+        'results': results,
+        'timestamp': timestamp,
+        'num_results': len(results),
+        'saved_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'is_final': final
+    }
+    
+    with open(checkpoint_path, 'wb') as f:
+        pickle.dump(checkpoint_data, f)
+    
+    return checkpoint_path
+
+
+def load_checkpoint(checkpoint_path: Path) -> Optional[Dict]:
+    """
+    Load checkpoint from disk
+    
+    Args:
+        checkpoint_path: Path to checkpoint file
+    
+    Returns:
+        Checkpoint data dictionary or None if error
+    """
+    try:
+        with open(checkpoint_path, 'rb') as f:
+            return pickle.load(f)
+    except Exception as e:
+        st.error(f"Error loading checkpoint: {e}")
+        return None
+
+
+def get_checkpoint_files(output_dir: Path) -> List[Path]:
+    """
+    Get list of checkpoint files in directory, sorted by creation time
+    
+    Args:
+        output_dir: Directory containing checkpoints
+    
+    Returns:
+        List of checkpoint file paths
+    """
+    if not output_dir.exists():
+        return []
+    
+    checkpoint_files = list(output_dir.glob("checkpoint_*.pkl")) + list(output_dir.glob("final_checkpoint_*.pkl"))
+    checkpoint_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    
+    return checkpoint_files
+
+
+def should_save_checkpoint(current_count: int, checkpoint_interval: int = 25) -> bool:
+    """
+    Determine if checkpoint should be saved based on count
+    
+    Args:
+        current_count: Current number of processed queries
+        checkpoint_interval: Save checkpoint every N queries
+    
+    Returns:
+        True if checkpoint should be saved
+    """
+    return current_count > 0 and current_count % checkpoint_interval == 0
+
+
+def display_checkpoint_info(output_dir: Path):
+    """Display information about available checkpoints"""
+    checkpoint_files = get_checkpoint_files(output_dir)
+    
+    if not checkpoint_files:
+        st.info("No checkpoints found in output directory")
+        return None
+    
+    st.markdown("### 💾 Available Checkpoints")
+    
+    checkpoint_options = []
+    for cp_file in checkpoint_files:
+        try:
+            cp_data = load_checkpoint(cp_file)
+            if cp_data:
+                label = f"{cp_file.name} - {cp_data['num_results']} queries ({cp_data['saved_at']})"
+                checkpoint_options.append((label, cp_file, cp_data))
+        except:
+            continue
+    
+    if not checkpoint_options:
+        st.warning("Found checkpoint files but couldn't load them")
+        return None
+    
+    selected = st.selectbox(
+        "Select checkpoint to resume from:",
+        options=range(len(checkpoint_options)),
+        format_func=lambda i: checkpoint_options[i][0]
+    )
+    
+    if selected is not None:
+        _, cp_file, cp_data = checkpoint_options[selected]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Queries Processed", cp_data['num_results'])
+        with col2:
+            st.metric("Saved At", cp_data['saved_at'])
+        with col3:
+            st.metric("Type", "Final" if cp_data.get('is_final', False) else "Intermediate")
+        
+        if st.button("📥 Load This Checkpoint", use_container_width=True):
+            return cp_data
+    
+    return None
+
+
+def cleanup_old_checkpoints(output_dir: Path, keep_latest: int = 5):
+    """
+    Remove old checkpoint files, keeping only the most recent ones
+    
+    Args:
+        output_dir: Directory containing checkpoints
+        keep_latest: Number of latest checkpoints to keep
+    """
+    checkpoint_files = get_checkpoint_files(output_dir)
+    
+    # Keep final checkpoints and only clean up intermediate ones
+    intermediate_checkpoints = [f for f in checkpoint_files if not f.name.startswith("final_")]
+    
+    if len(intermediate_checkpoints) > keep_latest:
+        for old_checkpoint in intermediate_checkpoints[keep_latest:]:
+            try:
+                old_checkpoint.unlink()
+                st.caption(f"Removed old checkpoint: {old_checkpoint.name}")
+            except Exception as e:
+                st.warning(f"Could not remove {old_checkpoint.name}: {e}")
+
+
+# ============================================================================
+# DISPLAY FUNCTIONS
+# ============================================================================
 
 def display_batch_summary(results: List[Dict]):
     """Display summary statistics for batch results"""
@@ -263,13 +429,13 @@ def display_query_details(idx: int, example: Dict, result: Dict, retry_result: D
         # Create tabs - add Retry History if available
         if retry_result:
             tabs = st.tabs([
-                "📊 Schema", "🎯 Complexity", "🔍 Examples", "🔀 Route", 
+                "📊 Schema", "🎯 Complexity", "📚 Examples", "🔀 Route", 
                 "💻 SQL", "✅ Validation", "⚡ Execution", "📈 Evaluation", "🔄 Retry History"
             ])
             has_retry_tab = True
         else:
             tabs = st.tabs([
-                "📊 Schema", "🎯 Complexity", "🔍 Examples", "🔀 Route", 
+                "📊 Schema", "🎯 Complexity", "📚 Examples", "🔀 Route", 
                 "💻 SQL", "✅ Validation", "⚡ Execution", "📈 Evaluation"
             ])
             has_retry_tab = False
@@ -508,3 +674,25 @@ def display_error_analysis(results: List[Dict]):
         top_errors = sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:5]
         for i, (error_type, count) in enumerate(top_errors, 1):
             st.write(f"{i}. {error_type} ({count} occurrences)")
+
+
+def display_checkpoint_status(current_count: int, total_count: int, checkpoint_interval: int = 25):
+    """Display progress bar with checkpoint indicators"""
+    progress = current_count / total_count if total_count > 0 else 0
+    
+    # Calculate next checkpoint
+    next_checkpoint = ((current_count // checkpoint_interval) + 1) * checkpoint_interval
+    queries_until_checkpoint = next_checkpoint - current_count
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Processed", f"{current_count}/{total_count}")
+    with col2:
+        st.metric("Progress", f"{progress*100:.1f}%")
+    with col3:
+        if queries_until_checkpoint <= checkpoint_interval:
+            st.metric("Next Checkpoint", f"{queries_until_checkpoint} queries")
+        else:
+            st.metric("Checkpoints", f"Every {checkpoint_interval}")
+    
+    st.progress(progress)

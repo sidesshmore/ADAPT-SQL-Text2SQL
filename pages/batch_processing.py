@@ -1,10 +1,11 @@
 """
-ADAPT-SQL Batch Processing Page - Updated with Enhanced UI
-Process multiple queries with full detailed view matching app.py
+ADAPT-SQL Batch Processing Page with Incremental Saving
+Process multiple queries with automatic checkpoints every 25 queries
 """
 import streamlit as st
 import json
 import sqlite3
+import pickle
 from pathlib import Path
 from datetime import datetime
 import sys
@@ -25,7 +26,10 @@ from batch_utils import (
     filter_results,
     export_summary_csv,
     export_full_json,
-    display_error_analysis
+    display_error_analysis,
+    save_checkpoint,
+    load_checkpoint,
+    get_checkpoint_files
 )
 
 
@@ -101,7 +105,7 @@ def get_foreign_keys_from_sqlite(db_path: str) -> list:
 
 def main():
     st.title("📦 Batch Processing - ADAPT-SQL")
-    st.markdown("Process multiple queries with comprehensive evaluation and detailed analysis")
+    st.markdown("Process multiple queries with automatic checkpoints every 25 queries")
     st.markdown("---")
     
     # Configuration sidebar
@@ -133,6 +137,11 @@ def main():
         num_queries = st.number_input("Number of Queries", min_value=1, max_value=1000, value=10, step=5)
         start_idx = st.number_input("Start Index", min_value=0, value=0)
         
+        checkpoint_interval = st.number_input("Checkpoint Interval", min_value=5, max_value=100, value=25, step=5)
+        st.caption(f"Results will be saved every {checkpoint_interval} queries")
+        
+        output_dir = st.text_input("Output Directory", value="./batch_results")
+        
         st.markdown("---")
         st.markdown("### 🔧 Processing Options")
         
@@ -146,6 +155,26 @@ def main():
             max_full_retries = st.slider("Max Full Retries", 0, 5, 2)
             min_eval_score = st.slider("Min Evaluation Score", 0.0, 1.0, 0.8, 0.05)
             st.caption(f"Will retry if EX=0 or score < {min_eval_score}")
+        
+        st.markdown("---")
+        
+        # Checkpoint management
+        st.markdown("### 💾 Checkpoint Management")
+        
+        checkpoint_dir = Path(output_dir)
+        checkpoint_files = get_checkpoint_files(checkpoint_dir)
+        
+        if checkpoint_files:
+            st.info(f"Found {len(checkpoint_files)} checkpoint files")
+            
+            if st.button("🔄 Resume from Latest Checkpoint"):
+                latest = checkpoint_files[-1]
+                checkpoint_data = load_checkpoint(latest)
+                if checkpoint_data:
+                    st.session_state.batch_results = checkpoint_data['results']
+                    st.session_state.batch_timestamp = checkpoint_data['timestamp']
+                    st.session_state.checkpoint_resumed = True
+                    st.success(f"✅ Resumed from checkpoint with {len(checkpoint_data['results'])} results")
         
         st.markdown("---")
         
@@ -170,10 +199,15 @@ def main():
             1. Configure paths in sidebar
             2. Click "Load Dataset"
             3. Set number of queries and start index
-            4. Enable processing options
-            5. Click "Run Batch Processing"
-            6. View detailed results with full UI
-            7. Export results as CSV or JSON
+            4. Set checkpoint interval (default: 25)
+            5. Choose output directory
+            6. Enable processing options
+            7. Click "Run Batch Processing"
+            
+            ### 💾 Automatic Checkpoints:
+            - Results saved every N queries
+            - Resume from last checkpoint if interrupted
+            - No data loss on failures
             """)
         
         with col2:
@@ -189,6 +223,7 @@ def main():
             - Full detailed view with all tabs
             - Spider benchmark metrics (EX, EM)
             - Retry history with improvements
+            - Export to CSV/JSON
             """)
         
         return
@@ -198,13 +233,15 @@ def main():
     
     end_idx = min(start_idx + num_queries, len(st.session_state.spider_data))
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Start Index", start_idx)
     with col2:
         st.metric("End Index", end_idx - 1)
     with col3:
         st.metric("Total Queries", end_idx - start_idx)
+    with col4:
+        st.metric("Checkpoint Every", checkpoint_interval)
     
     # Display processing options summary
     st.markdown("**Enabled Options:**")
@@ -225,6 +262,10 @@ def main():
     st.markdown("---")
     
     if st.button("🚀 Run Batch Processing", type="primary", use_container_width=True):
+        # Create output directory
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
         # Initialize ADAPT
         with st.spinner("Initializing ADAPT-SQL pipeline..."):
             adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
@@ -245,10 +286,21 @@ def main():
         # Results container
         results_container = st.container()
         
-        results = []
+        # Initialize or resume results
+        if 'batch_results' not in st.session_state or not st.session_state.get('checkpoint_resumed', False):
+            results = []
+            st.session_state.batch_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            results = st.session_state.batch_results
+            st.info(f"▶️ Resuming from checkpoint with {len(results)} existing results")
+            st.session_state.checkpoint_resumed = False
         
         # Process each query
         for i in range(start_idx, end_idx):
+            # Skip if already processed
+            if any(r['index'] == i for r in results):
+                continue
+            
             example = st.session_state.spider_data[i]
             
             # Update status
@@ -321,15 +373,32 @@ def main():
                 import traceback
                 with st.expander("View Error Details"):
                     st.code(traceback.format_exc())
+            
+            # Save checkpoint every N queries
+            if len(results) % checkpoint_interval == 0:
+                checkpoint_path = save_checkpoint(
+                    results, 
+                    st.session_state.batch_timestamp,
+                    output_path
+                )
+                status_text.markdown(f"💾 **Checkpoint saved:** {checkpoint_path.name} ({len(results)} results)")
+        
+        # Save final checkpoint
+        final_checkpoint = save_checkpoint(
+            results,
+            st.session_state.batch_timestamp,
+            output_path,
+            final=True
+        )
         
         progress_bar.empty()
         status_text.empty()
         
         # Store results in session state
         st.session_state.batch_results = results
-        st.session_state.batch_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         st.success(f"✅ Batch processing complete! Processed {len(results)} queries.")
+        st.info(f"💾 Final results saved to: {final_checkpoint}")
     
     # Display results if available
     if 'batch_results' in st.session_state:
@@ -468,7 +537,7 @@ def main():
                         ex_pct = (ex_perfect / (ex_perfect + ex_failed) * 100)
                         st.metric("EX = 1.0 Rate", f"{ex_pct:.1f}%", f"{ex_perfect}/{ex_perfect + ex_failed}")
                         st.progress(ex_pct / 100)
-                    
+                
                 with col2:
                     st.markdown("**Exact-Set-Match (EM) Distribution**")
                     em_perfect = sum(1 for r in results if r['result'].get('step11', {}).get('exact_set_match'))

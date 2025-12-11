@@ -19,6 +19,7 @@ from batch_utils import (
     display_complexity_distribution,
     display_execution_summary,
     display_evaluation_summary,
+    display_retry_summary,
     display_query_summary_card,
     display_query_details,
     filter_results,
@@ -252,6 +253,14 @@ def main():
                         'total_attempts': retry_result['total_attempts'],
                         'success': retry_result['success']
                     }
+                    
+                    # Store full retry result for detailed view
+                    results.append({
+                        'index': i,
+                        'example': example,
+                        'result': result,
+                        'retry_result': retry_result  # Store full retry result
+                    })
                 else:
                     # Normal pipeline
                     result = adapt.run_full_pipeline(
@@ -265,12 +274,13 @@ def main():
                         enable_execution=enable_execution,
                         enable_evaluation=enable_evaluation
                     )
-                
-                results.append({
-                    'index': i,
-                    'example': example,
-                    'result': result
-                })
+                    
+                    results.append({
+                        'index': i,
+                        'example': example,
+                        'result': result,
+                        'retry_result': None
+                    })
             except Exception as e:
                 st.error(f"Error processing query {i}: {e}")
             
@@ -311,6 +321,11 @@ def main():
         # Evaluation summary (if enabled)
         if any(r['result'].get('step11') for r in results):
             display_evaluation_summary(results)
+            st.markdown("---")
+        
+        # Retry summary (if enabled)
+        if any(r['result'].get('retry_info') for r in results):
+            display_retry_summary(results)
             st.markdown("---")
         
         # Error analysis
@@ -377,7 +392,12 @@ def main():
                 st.markdown("---")
         else:
             for r in filtered_results:
-                display_query_details(r['index'], r['example'], r['result'])
+                display_query_details(
+                    r['index'], 
+                    r['example'], 
+                    r['result'],
+                    r.get('retry_result')  # Pass retry result if available
+                )
         
         # Export options
         st.markdown("---")

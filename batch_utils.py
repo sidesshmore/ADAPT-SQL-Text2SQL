@@ -100,15 +100,42 @@ def display_evaluation_summary(results: List[Dict]):
         st.metric("Avg Score", f"{avg_eval_score:.2f}")
 
 
+def display_retry_summary(results: List[Dict]):
+    """Display retry statistics"""
+    st.markdown("### Retry Statistics")
+    
+    retry_count = sum(1 for r in results if r['result'].get('retry_info'))
+    if retry_count == 0:
+        st.info("No queries used full pipeline retry")
+        return
+    
+    total_attempts = sum(
+        r['result']['retry_info']['total_attempts'] 
+        for r in results if r['result'].get('retry_info')
+    )
+    
+    success_count = sum(
+        1 for r in results 
+        if r['result'].get('retry_info', {}).get('success', False)
+    )
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Queries with Retry", retry_count)
+    with col2:
+        avg_attempts = total_attempts / retry_count if retry_count > 0 else 0
+        st.metric("Avg Attempts", f"{avg_attempts:.1f}")
+    with col3:
+        st.metric("Retry Success", success_count)
+    with col4:
+        success_rate = (success_count / retry_count * 100) if retry_count > 0 else 0
+        st.metric("Retry Success Rate", f"{success_rate:.1f}%")
+
+
 def display_query_summary_card(idx: int, example: Dict, result: Dict):
     """Display a summary card for a single query"""
     # Get complexity
     complexity = result['step2']['complexity_class'].value
-    complexity_color = {
-        "EASY": "success",
-        "NON_NESTED_COMPLEX": "warning",
-        "NESTED_COMPLEX": "error"
-    }.get(complexity, "info")
     
     # Get validation status
     is_valid = result.get('step7', {}).get('is_valid', False)
@@ -120,12 +147,17 @@ def display_query_summary_card(idx: int, example: Dict, result: Dict):
     # Get evaluation score
     eval_score = result.get('step11', {}).get('evaluation_score', None)
     
+    # Get retry info
+    retry_info = result.get('retry_info')
+    
     # Display card
     col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
     
     with col1:
         st.markdown(f"**#{idx + 1}:** {example['question'][:60]}...")
         st.caption(f"Database: {example['db_id']}")
+        if retry_info:
+            st.caption(f"Retry: {retry_info['total_attempts']} attempts | {'Success' if retry_info['success'] else 'Max reached'}")
     
     with col2:
         if complexity == "EASY":
@@ -158,7 +190,7 @@ def display_query_summary_card(idx: int, example: Dict, result: Dict):
             st.info("Not executed")
 
 
-def display_query_details(idx: int, example: Dict, result: Dict):
+def display_query_details(idx: int, example: Dict, result: Dict, retry_result: Dict = None):
     """Display detailed results for a single query"""
     from display_utils import (
         display_schema_tab,
@@ -168,18 +200,27 @@ def display_query_details(idx: int, example: Dict, result: Dict):
         display_sql_tab,
         display_validation_tab,
         display_execution_tab,
-        display_evaluation_tab
+        display_evaluation_tab,
+        display_retry_history_tab
     )
     
     with st.expander(f"Query #{idx + 1}: {example['question'][:80]}...", expanded=False):
         st.markdown(f"**Database:** `{example['db_id']}`")
         st.markdown(f"**Question:** {example['question']}")
         
-        # Create tabs
-        tabs = st.tabs([
-            "Schema", "Complexity", "Examples", "Route", 
-            "SQL", "Validation", "Execution", "Evaluation"
-        ])
+        # Create tabs - add Retry History if available
+        if retry_result:
+            tabs = st.tabs([
+                "Schema", "Complexity", "Examples", "Route", 
+                "SQL", "Validation", "Execution", "Evaluation", "Retry History"
+            ])
+            has_retry_tab = True
+        else:
+            tabs = st.tabs([
+                "Schema", "Complexity", "Examples", "Route", 
+                "SQL", "Validation", "Execution", "Evaluation"
+            ])
+            has_retry_tab = False
         
         with tabs[0]:
             display_schema_tab(result)
@@ -204,6 +245,10 @@ def display_query_details(idx: int, example: Dict, result: Dict):
         
         with tabs[7]:
             display_evaluation_tab(result, example)
+        
+        if has_retry_tab:
+            with tabs[8]:
+                display_retry_history_tab(retry_result)
 
 
 def filter_results(results: List[Dict], filter_complexity: List[str], filter_validity: str, 
@@ -286,6 +331,13 @@ def export_summary_csv(results: List[Dict]) -> str:
             eval_score = r['result']['step11']['evaluation_score']
             exec_accuracy = r['result']['step11']['execution_accuracy']
         
+        # Get retry info
+        retry_attempts = None
+        retry_success = None
+        if r['result'].get('retry_info'):
+            retry_attempts = r['result']['retry_info']['total_attempts']
+            retry_success = r['result']['retry_info']['success']
+        
         summary_data.append({
             'Index': r['index'],
             'Database': r['example']['db_id'],
@@ -301,7 +353,9 @@ def export_summary_csv(results: List[Dict]) -> str:
             'Execution_Success': exec_success,
             'Execution_Time': exec_time,
             'Evaluation_Score': eval_score,
-            'Execution_Accuracy': exec_accuracy
+            'Execution_Accuracy': exec_accuracy,
+            'Retry_Attempts': retry_attempts,
+            'Retry_Success': retry_success
         })
     
     df = pd.DataFrame(summary_data)
@@ -358,7 +412,8 @@ def export_full_json(results: List[Dict]) -> str:
         export_data.append({
             'index': r['index'],
             'example': r['example'],
-            'result': result_copy
+            'result': result_copy,
+            'retry_result': r.get('retry_result')
         })
     
     return json.dumps(export_data, indent=2)

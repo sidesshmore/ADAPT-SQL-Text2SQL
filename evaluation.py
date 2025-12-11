@@ -1,5 +1,6 @@
 """
 STEP 11: Evaluation (Aligned with DAIL-SQL and DIN-SQL Papers)
+FIXED: Compare DataFrame VALUES, not column names
 Evaluates generated SQL using official Spider metrics:
 - Execution Accuracy (EX) - Primary metric
 - Exact-Set-Match Accuracy (EM) - Secondary metric
@@ -130,8 +131,7 @@ class Text2SQLEvaluator:
         """
         Compute Execution Accuracy (EX) - PRIMARY metric
         
-        From papers: "compares the execution output of the predicted SQL 
-        query with that of the ground truth SQL query on database instances"
+        FIXED: Compare VALUES only, ignore column names
         
         Returns True if execution results are identical
         """
@@ -143,73 +143,104 @@ class Text2SQLEvaluator:
         gold_df = gold_execution['result_df']
         
         try:
-            # Check if DataFrames are equal
-            return self._dataframes_equal(gen_df, gold_df)
+            # FIXED: Compare values, not column names
+            return self._dataframes_equal_by_values(gen_df, gold_df)
                 
         except Exception as e:
             print(f"   ⚠️ Error comparing DataFrames: {e}")
             return False
     
-    def _dataframes_equal(self, df1: pd.DataFrame, df2: pd.DataFrame) -> bool:
+    def _dataframes_equal_by_values(self, df1: pd.DataFrame, df2: pd.DataFrame) -> bool:
         """
-        Compare DataFrames for equality (handles various edge cases)
+        FIXED: Compare DataFrames by VALUES only, ignoring column names
+        
+        This handles cases where:
+        - Generated: average_age, minimum_age, maximum_age
+        - Gold: avg(age), min(age), max(age)
+        
+        As long as the VALUES match, we consider them equal.
         """
         # Handle empty DataFrames
         if len(df1) == 0 and len(df2) == 0:
             return True
         
-        # Check shape
+        # Check shape (rows and columns must match)
         if df1.shape != df2.shape:
+            print(f"   Shape mismatch: {df1.shape} vs {df2.shape}")
             return False
         
         # If only one is empty
         if len(df1) == 0 or len(df2) == 0:
             return False
         
-        # Normalize for comparison
-        df1_norm = df1.copy()
-        df2_norm = df2.copy()
-        
-        # Normalize column names (case-insensitive)
-        df1_norm.columns = [str(col).strip().lower() for col in df1_norm.columns]
-        df2_norm.columns = [str(col).strip().lower() for col in df2_norm.columns]
-        
-        # Sort columns alphabetically
-        df1_norm = df1_norm.sort_index(axis=1)
-        df2_norm = df2_norm.sort_index(axis=1)
-        
-        # Sort rows by all columns
+        # CRITICAL FIX: Compare by VALUES, not column names
+        # Convert to numpy arrays and compare values directly
         try:
-            df1_norm = df1_norm.sort_values(
-                by=list(df1_norm.columns)
-            ).reset_index(drop=True)
-            df2_norm = df2_norm.sort_values(
-                by=list(df2_norm.columns)
-            ).reset_index(drop=True)
-        except:
-            df1_norm = df1_norm.reset_index(drop=True)
-            df2_norm = df2_norm.reset_index(drop=True)
-        
-        # Convert to strings for comparison
-        df1_str = df1_norm.astype(str)
-        df2_str = df2_norm.astype(str)
-        
-        # Compare
-        if df1_str.equals(df2_str):
-            return True
-        
-        # Try numeric comparison with tolerance
-        try:
-            for col in df1_norm.columns:
-                col1 = pd.to_numeric(df1_norm[col], errors='coerce')
-                col2 = pd.to_numeric(df2_norm[col], errors='coerce')
-                
-                if not np.allclose(col1, col2, rtol=1e-5, atol=1e-8, equal_nan=True):
-                    return False
+            # Get values as arrays
+            vals1 = df1.values
+            vals2 = df2.values
             
+            # Sort both by all columns to ensure order doesn't matter
+            # Convert to string for sorting to handle mixed types
+            vals1_str = np.array([[str(cell) for cell in row] for row in vals1])
+            vals2_str = np.array([[str(cell) for cell in row] for row in vals2])
+            
+            # Sort rows
+            sort_idx1 = np.lexsort([vals1_str[:, i] for i in range(vals1_str.shape[1] - 1, -1, -1)])
+            sort_idx2 = np.lexsort([vals2_str[:, i] for i in range(vals2_str.shape[1] - 1, -1, -1)])
+            
+            vals1_sorted = vals1[sort_idx1]
+            vals2_sorted = vals2[sort_idx2]
+            
+            # Compare values element by element
+            for i in range(len(vals1_sorted)):
+                for j in range(len(vals1_sorted[i])):
+                    val1 = vals1_sorted[i][j]
+                    val2 = vals2_sorted[i][j]
+                    
+                    # Try numeric comparison first
+                    try:
+                        num1 = float(val1)
+                        num2 = float(val2)
+                        
+                        # Use tolerance for floating point comparison
+                        if not np.isclose(num1, num2, rtol=1e-5, atol=1e-8, equal_nan=True):
+                            print(f"   Value mismatch at [{i},{j}]: {num1} vs {num2}")
+                            return False
+                    except (ValueError, TypeError):
+                        # String comparison
+                        str1 = str(val1).strip().lower()
+                        str2 = str(val2).strip().lower()
+                        
+                        if str1 != str2:
+                            print(f"   Value mismatch at [{i},{j}]: '{str1}' vs '{str2}'")
+                            return False
+            
+            print(f"   ✅ All values match! (Ignoring column name differences)")
             return True
-        except:
-            return False
+            
+        except Exception as e:
+            print(f"   ⚠️ Error in value comparison: {e}")
+            
+            # Fallback: Try pandas comparison with renamed columns
+            try:
+                # Rename columns to generic names and compare
+                df1_renamed = df1.copy()
+                df2_renamed = df2.copy()
+                
+                df1_renamed.columns = [f"col_{i}" for i in range(len(df1.columns))]
+                df2_renamed.columns = [f"col_{i}" for i in range(len(df2.columns))]
+                
+                # Sort both DataFrames by all columns
+                df1_sorted = df1_renamed.sort_values(by=list(df1_renamed.columns)).reset_index(drop=True)
+                df2_sorted = df2_renamed.sort_values(by=list(df2_renamed.columns)).reset_index(drop=True)
+                
+                # Compare
+                return df1_sorted.equals(df2_sorted)
+                
+            except Exception as e2:
+                print(f"   ⚠️ Fallback comparison also failed: {e2}")
+                return False
     
     # ====================================================================
     # EXACT-SET-MATCH ACCURACY (SECONDARY METRIC)
@@ -449,13 +480,22 @@ class Text2SQLEvaluator:
         reasoning += f"   Result: {'✅ PASS (1.0)' if execution_accuracy else '❌ FAIL (0.0)'}\n\n"
         
         if execution_accuracy:
-            reasoning += "   Both queries executed successfully and produced IDENTICAL results.\n"
+            reasoning += "   Both queries executed successfully and produced IDENTICAL VALUES.\n"
             gen_shape = generated_execution['result_df'].shape
             reasoning += f"   Result shape: {gen_shape[0]} rows × {gen_shape[1]} columns\n\n"
             
-            reasoning += "   This is the GOLD STANDARD for Text-to-SQL evaluation.\n"
+            # Show column name comparison
+            gen_cols = list(generated_execution['result_df'].columns)
+            gold_cols = list(gold_execution['result_df'].columns)
+            
+            if gen_cols != gold_cols:
+                reasoning += "   Note: Column names differ, but VALUES are identical:\n"
+                reasoning += f"   Generated columns: {gen_cols}\n"
+                reasoning += f"   Gold columns: {gold_cols}\n\n"
+            
+            reasoning += "   ✅ This is the GOLD STANDARD for Text-to-SQL evaluation.\n"
             reasoning += "   Multiple different SQL queries can be correct as long as\n"
-            reasoning += "   they produce the same results.\n"
+            reasoning += "   they produce the same results (values matter, not column names).\n"
         else:
             reasoning += "   Execution results DO NOT MATCH.\n\n"
             
@@ -466,7 +506,7 @@ class Text2SQLEvaluator:
                 reasoning += f"   ❌ Ground truth SQL failed to execute:\n"
                 reasoning += f"      {gold_execution['error_message']}\n\n"
             else:
-                reasoning += "   Both queries executed but produced DIFFERENT results:\n\n"
+                reasoning += "   Both queries executed but produced DIFFERENT values:\n\n"
                 
                 gen_shape = generated_execution['result_df'].shape
                 gold_shape = gold_execution['result_df'].shape
@@ -543,6 +583,7 @@ class Text2SQLEvaluator:
             reasoning += "  ✅ Execution results match (EX = 1.0) - MOST IMPORTANT\n"
             reasoning += "  ❌ SQL structure differs (EM = 0.0)\n"
             reasoning += "  This is still CORRECT - multiple valid SQL queries exist.\n"
+            reasoning += "  Example: Different column names (avg_age vs avg(age)) are fine!\n"
         
         elif not execution_accuracy and exact_set_match:
             reasoning += "Grade: C (Structure Match but Wrong Results)\n"
@@ -565,11 +606,12 @@ class Text2SQLEvaluator:
             reasoning += "     This query correctly answers the question.\n"
             if not exact_set_match:
                 reasoning += "     The SQL structure difference is acceptable.\n"
+                reasoning += "     (e.g., 'average_age' vs 'avg(age)' - both correct!)\n"
         else:
             reasoning += "  ❌ The PRIMARY metric (Execution Accuracy) FAILED.\n"
             reasoning += "     This is the critical issue that must be fixed.\n"
             if exact_set_match:
-                reasoning += "     Despite matching SQL structure, results are wrong.\n"
+                reasoning += "     Despite matching SQL structure, values are wrong.\n"
         
         return reasoning
     

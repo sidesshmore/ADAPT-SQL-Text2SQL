@@ -1,18 +1,29 @@
 """
-ADAPT-SQL Streamlit Application - Main Single Query Interface
-Now with Execution (Step 10) and Evaluation (Step 11)
+ADAPT-SQL Streamlit Application - Refactored
+Cleaner version with display functions moved to separate module
 """
 import streamlit as st
 import json
 import sqlite3
-import pandas as pd
 from pathlib import Path
 from adapt_baseline import ADAPTBaseline
+from enhanced_retry_engine import EnhancedRetryEngine
+from display_utils import (
+    display_schema_tab,
+    display_complexity_tab,
+    display_examples_tab,
+    display_routing_tab,
+    display_sql_tab,
+    display_validation_tab,
+    display_execution_tab,
+    display_evaluation_tab,
+    display_retry_history_tab
+)
 
 
 st.set_page_config(
-    page_title="ADAPT-SQL Pipeline", 
-    page_icon="🎯", 
+    page_title="ADAPT-SQL Pipeline (Enhanced)", 
+    page_icon="SQL", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -85,427 +96,14 @@ def get_foreign_keys_from_sqlite(db_path: str) -> list:
         return []
 
 
-def display_complexity_badge(complexity: str):
-    """Display complexity with color badge"""
-    if complexity == "EASY":
-        st.success(f"🟢 {complexity}")
-    elif complexity == "NON_NESTED_COMPLEX":
-        st.warning(f"🟡 {complexity}")
-    else:
-        st.error(f"🔴 {complexity}")
-
-
-def display_validation_badge(is_valid: bool, validation_score: float):
-    """Display validation status badge"""
-    if is_valid:
-        st.success(f"✅ Valid SQL (Score: {validation_score:.2f})")
-    else:
-        st.error(f"❌ Invalid SQL (Score: {validation_score:.2f})")
-
-
-def display_schema_tab(result: dict):
-    """Display schema linking results"""
-    st.markdown("### Schema Linking")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Tables", len(result['step1']['schema_links']['tables']))
-    with col2:
-        total_cols = sum(len(cols) for cols in result['step1']['schema_links']['columns'].values())
-        st.metric("Columns", total_cols)
-    with col3:
-        st.metric("Foreign Keys", len(result['step1']['schema_links']['foreign_keys']))
-    
-    st.markdown("**Relevant Tables:**")
-    for table in sorted(result['step1']['schema_links']['tables']):
-        st.success(f"📊 {table}")
-
-
-def display_complexity_tab(result: dict):
-    """Display complexity classification results"""
-    st.markdown("### Complexity Classification")
-    display_complexity_badge(result['step2']['complexity_class'].value)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write(f"• Tables: {len(result['step2']['required_tables'])}")
-        st.write(f"• JOINs: {'✅' if result['step2']['needs_joins'] else '❌'}")
-        st.write(f"• Subqueries: {'✅' if result['step2']['needs_subqueries'] else '❌'}")
-    with col2:
-        if result['step2']['aggregations']:
-            st.write(f"• Aggregations: {', '.join(result['step2']['aggregations'])}")
-        st.write(f"• GROUP BY: {'✅' if result['step2']['has_grouping'] else '❌'}")
-    
-    if result['step2'].get('sub_questions'):
-        st.markdown("**Sub-questions:**")
-        for i, sq in enumerate(result['step2']['sub_questions'], 1):
-            st.info(f"{i}. {sq}")
-    
-    st.markdown("**Preliminary SQL:**")
-    st.code(result['step3']['predicted_sql'], language='sql')
-
-
-def display_examples_tab(result: dict):
-    """Display similar examples"""
-    st.markdown("### Similar Examples")
-    st.metric("Found", result['step4']['total_found'])
-    
-    for i, ex in enumerate(result['step4']['similar_examples'][:5], 1):
-        score = ex.get('similarity_score', 0)
-        color = "🟢" if score >= 0.8 else "🟡" if score >= 0.6 else "🔴"
-        
-        with st.expander(f"{color} {i}. {ex.get('question', '')[:60]}... ({score:.3f})"):
-            st.markdown(f"**Question:** {ex.get('question', '')}")
-            st.code(ex.get('query', ''), language='sql')
-
-
-def display_routing_tab(result: dict):
-    """Display routing strategy"""
-    st.markdown("### Routing Strategy")
-    strategy = result['step5']['strategy'].value
-    st.success(f"🎯 {strategy}")
-    st.info(result['step5']['description'])
-
-
-def display_sql_tab(result: dict, example: dict):
-    """Display generated SQL"""
-    st.markdown("### Generated SQL")
-    
-    # Display based on generation method
-    if result.get('step6a'):
-        st.markdown("**Method:** Simple Few-Shot (6a)")
-        st.code(result['step6a']['generated_sql'], language='sql')
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            conf = result['step6a']['confidence']
-            if conf >= 0.8:
-                st.success(f"Confidence: {conf:.1%}")
-            elif conf >= 0.6:
-                st.warning(f"Confidence: {conf:.1%}")
-            else:
-                st.error(f"Confidence: {conf:.1%}")
-        with col2:
-            st.metric("Examples Used", result['step6a']['examples_used'])
-    
-    elif result.get('step6b'):
-        st.markdown("**Method:** Intermediate Representation (6b)")
-        
-        with st.expander("🔍 NatSQL Intermediate"):
-            st.code(result['step6b']['natsql_intermediate'], language='text')
-        
-        st.markdown("**Generated SQL:**")
-        st.code(result['step6b']['generated_sql'], language='sql')
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            conf = result['step6b']['confidence']
-            if conf >= 0.8:
-                st.success(f"Confidence: {conf:.1%}")
-            elif conf >= 0.6:
-                st.warning(f"Confidence: {conf:.1%}")
-            else:
-                st.error(f"Confidence: {conf:.1%}")
-        with col2:
-            st.metric("Examples Used", result['step6b']['examples_used'])
-    
-    elif result.get('step6c'):
-        st.markdown("**Method:** Decomposed Generation (6c)")
-        
-        if result['step6c']['sub_sql_list']:
-            st.markdown("**Sub-queries:**")
-            for i, sub_info in enumerate(result['step6c']['sub_sql_list'], 1):
-                with st.expander(f"Sub-query {i}: {sub_info['sub_question'][:40]}... [{sub_info['complexity']}]"):
-                    st.markdown(f"**Question:** {sub_info['sub_question']}")
-                    st.code(sub_info['sql'], language='sql')
-        
-        with st.expander("🔍 NatSQL Intermediate with Sub-queries"):
-            st.code(result['step6c']['natsql_intermediate'], language='text')
-        
-        st.markdown("**Final SQL:**")
-        st.code(result['step6c']['generated_sql'], language='sql')
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            conf = result['step6c']['confidence']
-            if conf >= 0.75:
-                st.success(f"Confidence: {conf:.1%}")
-            elif conf >= 0.55:
-                st.warning(f"Confidence: {conf:.1%}")
-            else:
-                st.error(f"Confidence: {conf:.1%}")
-        with col2:
-            st.metric("Examples Used", result['step6c']['examples_used'])
-        with col3:
-            st.metric("Sub-queries", len(result['step6c']['sub_sql_list']))
-    
-    else:
-        st.warning("⚠️ No SQL generated")
-    
-    # Compare with ground truth
-    if 'query' in example:
-        st.markdown("---")
-        st.markdown("**Compare with Ground Truth:**")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("*Generated:*")
-            generated = (result.get('step6a') or result.get('step6b') or result.get('step6c') or {}).get('generated_sql', 'N/A')
-            st.code(generated, language='sql')
-        with col2:
-            st.markdown("*Ground Truth:*")
-            st.code(example['query'], language='sql')
-
-
-def display_validation_tab(result: dict):
-    """Display validation results"""
-    st.markdown("### SQL Validation (Step 7)")
-    
-    if result.get('step7'):
-        validation = result['step7']
-        
-        # Overall status
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            display_validation_badge(validation['is_valid'], validation['validation_score'])
-        with col2:
-            st.metric("Errors", len(validation['errors']))
-        with col3:
-            st.metric("Warnings", len(validation['warnings']))
-        
-        st.markdown("---")
-        
-        # Errors section
-        if validation['errors']:
-            st.markdown("### ❌ Errors")
-            for i, error in enumerate(validation['errors'], 1):
-                severity_color = {
-                    'CRITICAL': '🔴',
-                    'HIGH': '🟠',
-                    'MEDIUM': '🟡',
-                    'LOW': '🟢'
-                }.get(error['severity'], '⚪')
-                
-                with st.expander(f"{severity_color} Error {i}: {error['type']} [{error['severity']}]", expanded=True):
-                    st.error(error['message'])
-                    
-                    if 'table' in error:
-                        st.write(f"**Table:** `{error['table']}`")
-                    if 'column' in error:
-                        st.write(f"**Column:** `{error['column']}`")
-        else:
-            st.success("✅ No errors found!")
-        
-        st.markdown("---")
-        
-        # Warnings section
-        if validation['warnings']:
-            st.markdown("### ⚠️ Warnings")
-            for i, warning in enumerate(validation['warnings'], 1):
-                severity_color = {
-                    'MEDIUM': '🟡',
-                    'LOW': '🟢'
-                }.get(warning['severity'], '⚪')
-                
-                with st.expander(f"{severity_color} Warning {i}: {warning['type']} [{warning['severity']}]"):
-                    st.warning(warning['message'])
-                    
-                    if 'table' in warning:
-                        st.write(f"**Table:** `{warning['table']}`")
-        else:
-            st.info("No warnings")
-        
-        st.markdown("---")
-        
-        # Suggestions section
-        if validation['suggestions']:
-            st.markdown("### 💡 Suggestions")
-            for i, suggestion in enumerate(validation['suggestions'], 1):
-                st.info(f"{i}. {suggestion}")
-        
-        # Full validation reasoning
-        with st.expander("📋 Full Validation Report"):
-            st.text(validation['reasoning'])
-    
-    else:
-        st.warning("⚠️ Validation not performed")
-
-
-def display_execution_tab(result: dict, example: dict):
-    """Display execution results (Step 10)"""
-    st.markdown("### SQL Execution (Step 10)")
-    
-    # Check if execution was performed
-    if not result.get('step10_generated'):
-        st.info("💡 Execution not performed. Enable 'Execute SQL' option to see results.")
-        return
-    
-    # Display generated SQL execution
-    st.markdown("#### 🔹 Generated SQL Execution")
-    gen_exec = result['step10_generated']
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if gen_exec['success']:
-            st.success("✅ Executed Successfully")
-        else:
-            st.error("❌ Execution Failed")
-    
-    with col2:
-        st.metric("Execution Time", f"{gen_exec['execution_time']:.3f}s")
-    
-    if gen_exec['success']:
-        st.markdown("**Query Results:**")
-        result_df = gen_exec['result_df']
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Rows Returned", len(result_df))
-        with col2:
-            st.metric("Columns", len(result_df.columns))
-        
-        if len(result_df) > 0:
-            st.dataframe(result_df, use_container_width=True)
-        else:
-            st.info("Query returned no results")
-    else:
-        st.error(f"**Error:** {gen_exec['error_message']}")
-    
-    # Display ground truth execution if available
-    if result.get('step10_gold'):
-        st.markdown("---")
-        st.markdown("#### 🔹 Ground Truth SQL Execution")
-        gold_exec = result['step10_gold']
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if gold_exec['success']:
-                st.success("✅ Executed Successfully")
-            else:
-                st.error("❌ Execution Failed")
-        
-        with col2:
-            st.metric("Execution Time", f"{gold_exec['execution_time']:.3f}s")
-        
-        if gold_exec['success']:
-            st.markdown("**Query Results:**")
-            result_df = gold_exec['result_df']
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Rows Returned", len(result_df))
-            with col2:
-                st.metric("Columns", len(result_df.columns))
-            
-            if len(result_df) > 0:
-                st.dataframe(result_df, use_container_width=True)
-            else:
-                st.info("Query returned no results")
-        else:
-            st.error(f"**Error:** {gold_exec['error_message']}")
-
-
-def display_evaluation_tab(result: dict, example: dict):
-    """Display evaluation results (Step 11)"""
-    st.markdown("### Evaluation (Step 11)")
-    
-    # Check if evaluation was performed
-    if not result.get('step11'):
-        st.info("💡 Evaluation not performed. Both execution and ground truth SQL are required.")
-        return
-    
-    eval_result = result['step11']
-    
-    # Overall score
-    st.markdown("#### 📊 Overall Evaluation Score")
-    
-    score = eval_result['evaluation_score']
-    
-    # Display score with progress bar
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if score >= 0.9:
-            st.success(f"**{score:.2f}**")
-            st.caption("Grade: A (Excellent)")
-        elif score >= 0.7:
-            st.info(f"**{score:.2f}**")
-            st.caption("Grade: B (Good)")
-        elif score >= 0.5:
-            st.warning(f"**{score:.2f}**")
-            st.caption("Grade: C (Fair)")
-        else:
-            st.error(f"**{score:.2f}**")
-            st.caption("Grade: D (Needs Improvement)")
-    
-    with col2:
-        st.progress(score)
-    
-    st.markdown("---")
-    
-    # Individual metrics
-    st.markdown("#### 📈 Individual Metrics")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        if eval_result['execution_accuracy']:
-            st.success("✅ Execution\nAccuracy")
-        else:
-            st.error("❌ Execution\nAccuracy")
-    
-    with col2:
-        if eval_result['exact_match']:
-            st.success("✅ Exact\nMatch")
-        else:
-            st.error("❌ Exact\nMatch")
-    
-    with col3:
-        if eval_result['normalized_match']:
-            st.success("✅ Normalized\nMatch")
-        else:
-            st.error("❌ Normalized\nMatch")
-    
-    with col4:
-        sem_score = eval_result['semantic_equivalence']
-        if sem_score >= 0.8:
-            st.success(f"✅ Semantic\n{sem_score:.2f}")
-        elif sem_score >= 0.6:
-            st.warning(f"⚠️ Semantic\n{sem_score:.2f}")
-        else:
-            st.error(f"❌ Semantic\n{sem_score:.2f}")
-    
-    st.markdown("---")
-    
-    # Component scores
-    st.markdown("#### 🔍 Component-Level Scores")
-    
-    component_scores = eval_result['component_scores']
-    
-    cols = st.columns(len(component_scores))
-    
-    for i, (component, score) in enumerate(sorted(component_scores.items())):
-        with cols[i]:
-            if score >= 0.8:
-                st.success(f"**{component.upper()}**\n{score:.2f}")
-            elif score >= 0.5:
-                st.warning(f"**{component.upper()}**\n{score:.2f}")
-            else:
-                st.error(f"**{component.upper()}**\n{score:.2f}")
-    
-    st.markdown("---")
-    
-    # Detailed reasoning
-    with st.expander("📋 Full Evaluation Report"):
-        st.text(eval_result['reasoning'])
-
-
 def main():
-    st.title("🎯 ADAPT-SQL Pipeline")
-    st.markdown("Complete Text-to-SQL with Steps 1-11 (including Execution & Evaluation)")
+    st.title("ADAPT-SQL Pipeline (Enhanced with Full Retry)")
+    st.markdown("Complete Text-to-SQL with Automatic Retry on Execution/Evaluation Failures")
     st.markdown("---")
     
     # Sidebar configuration
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        st.header("Configuration")
         
         model = st.selectbox("Model", ["llama3.2", "codellama", "mistral", "qwen2.5"])
         
@@ -527,44 +125,44 @@ def main():
         k_examples = st.slider("Similar Examples", 1, 20, 10)
         
         st.markdown("---")
-        st.markdown("### 🔧 Pipeline Options")
+        st.markdown("### Enhanced Retry Settings")
         
-        enable_retry = st.checkbox("Enable Retry (Step 8)", value=True)
-        enable_execution = st.checkbox("Enable Execution (Step 10)", value=True)
-        enable_evaluation = st.checkbox("Enable Evaluation (Step 11)", value=True)
+        enable_full_retry = st.checkbox("Enable Full Pipeline Retry", value=True)
+        max_full_retries = st.slider("Max Full Retries", 0, 3, 2)
+        min_eval_score = st.slider("Min Evaluation Score", 0.0, 1.0, 0.5, 0.1)
         
         st.markdown("---")
         
-        if st.button("📂 Load Dataset"):
+        if st.button("Load Dataset"):
             data = load_spider_data(spider_json_path)
             if data:
                 st.session_state.spider_data = data
-                st.success(f"✅ {len(data)} examples loaded")
+                st.success(f"Loaded {len(data)} examples")
         
         if st.session_state.spider_data:
-            st.info(f"📊 {len(st.session_state.spider_data)} examples loaded")
+            st.info(f"{len(st.session_state.spider_data)} examples loaded")
     
     # Main content
     if not st.session_state.spider_data:
-        st.info("👈 Load dataset from sidebar to begin")
+        st.info("Load dataset from sidebar to begin")
         st.markdown("""
-        ### 📖 How to use:
+        ### How to use:
         1. Configure the paths in the sidebar
         2. Click "Load Dataset" to load Spider examples
         3. Select an example query to analyze
-        4. Enable/disable pipeline options as needed
+        4. Enable/disable enhanced retry as needed
         5. Click "Run Pipeline" to process
         
-        ### 🔗 Additional Features:
-        - **Steps 1-7**: Schema linking, complexity classification, SQL generation, validation
-        - **Step 8**: Validation-feedback retry mechanism
-        - **Step 10**: Execute SQL on database and compare results
-        - **Step 11**: Comprehensive evaluation metrics
+        ### Enhanced Retry Features:
+        - **Automatic Full Retry**: If execution fails or evaluation score is low
+        - **Feedback Context**: Uses errors from previous attempts to improve
+        - **Multi-Attempt History**: View all retry attempts and their results
+        - **Best Attempt Selection**: Automatically selects best result if retries exhausted
         """)
         return
     
     # Example selection
-    st.header("🔍 Query Analysis")
+    st.header("Query Analysis")
     
     example_idx = st.selectbox(
         "Select Example",
@@ -589,45 +187,87 @@ def main():
     st.markdown("---")
     
     # Run pipeline button
-    if st.button("🚀 Run Pipeline", type="primary", use_container_width=True):
-        with st.spinner("Processing..."):
+    if st.button("Run Pipeline with Enhanced Retry", type="primary", use_container_width=True):
+        with st.spinner("Processing with enhanced retry..."):
             db_path = Path(spider_db_dir) / example['db_id'] / f"{example['db_id']}.sqlite"
             
             if not db_path.exists():
-                st.error("❌ Database not found")
+                st.error("Database not found")
                 return
             
             schema_dict = get_schema_from_sqlite(str(db_path))
             foreign_keys = get_foreign_keys_from_sqlite(str(db_path))
             
+            # Initialize ADAPT baseline
             adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
             
-            # Get ground truth SQL if available
             gold_sql = example.get('query', None)
             
-            result = adapt.run_full_pipeline(
-                example['question'],
-                schema_dict,
-                foreign_keys,
-                k_examples=k_examples,
-                enable_retry=enable_retry,
-                db_path=str(db_path) if enable_execution else None,
-                gold_sql=gold_sql if enable_evaluation else None,
-                enable_execution=enable_execution,
-                enable_evaluation=enable_evaluation
-            )
+            if enable_full_retry:
+                # Use enhanced retry engine
+                retry_engine = EnhancedRetryEngine(
+                    model=model,
+                    max_full_retries=max_full_retries,
+                    min_evaluation_score=min_eval_score
+                )
+                
+                retry_result = retry_engine.run_with_full_retry(
+                    adapt_baseline=adapt,
+                    natural_query=example['question'],
+                    schema_dict=schema_dict,
+                    foreign_keys=foreign_keys,
+                    k_examples=k_examples,
+                    db_path=str(db_path),
+                    gold_sql=gold_sql
+                )
+                
+                result = retry_result['final_result']
+                
+                # Show retry summary
+                st.success("Pipeline Complete with Enhanced Retry!")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Attempts", retry_result['total_attempts'])
+                with col2:
+                    status = "Success" if retry_result['success'] else "Max Retries"
+                    st.metric("Final Status", status)
+                with col3:
+                    if result.get('step11'):
+                        st.metric("Final Score", f"{result['step11']['evaluation_score']:.2f}")
+                
+            else:
+                # Normal pipeline without enhanced retry
+                result = adapt.run_full_pipeline(
+                    natural_query=example['question'],
+                    schema_dict=schema_dict,
+                    foreign_keys=foreign_keys,
+                    k_examples=k_examples,
+                    enable_retry=True,
+                    db_path=str(db_path),
+                    gold_sql=gold_sql,
+                    enable_execution=True,
+                    enable_evaluation=(gold_sql is not None)
+                )
+                
+                retry_result = None
+                st.success("Pipeline Complete!")
             
-            st.success("✅ Pipeline Complete!")
             st.markdown("---")
             
             # Display results in tabs
-            tabs = ["📊 Schema", "🔍 Complexity", "🔎 Examples", "🔀 Route", "✨ SQL", "✅ Validation"]
-            
-            if enable_execution:
-                tabs.append("▶️ Execution")
-            
-            if enable_evaluation:
-                tabs.append("📊 Evaluation")
+            if enable_full_retry and retry_result:
+                tabs = [
+                    "Schema", "Complexity", "Examples", 
+                    "Route", "SQL", "Validation",
+                    "Execution", "Evaluation", "Retry History"
+                ]
+            else:
+                tabs = [
+                    "Schema", "Complexity", "Examples",
+                    "Route", "SQL", "Validation",
+                    "Execution", "Evaluation"
+                ]
             
             tab_objects = st.tabs(tabs)
             
@@ -649,13 +289,15 @@ def main():
             with tab_objects[5]:
                 display_validation_tab(result)
             
-            if enable_execution:
-                with tab_objects[6]:
-                    display_execution_tab(result, example)
+            with tab_objects[6]:
+                display_execution_tab(result, example)
             
-            if enable_evaluation:
-                with tab_objects[-1]:
-                    display_evaluation_tab(result, example)
+            with tab_objects[7]:
+                display_evaluation_tab(result, example)
+            
+            if enable_full_retry and retry_result:
+                with tab_objects[8]:
+                    display_retry_history_tab(retry_result)
 
 
 if __name__ == "__main__":

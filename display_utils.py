@@ -1,6 +1,6 @@
 """
 Display Utilities for ADAPT-SQL Streamlit Application
-Separate module for all display functions to reduce app.py size
+Fixed to match new evaluation.py structure with Spider metrics
 """
 import streamlit as st
 import pandas as pd
@@ -9,26 +9,23 @@ import pandas as pd
 def display_complexity_badge(complexity: str):
     """Display complexity with color badge"""
     if complexity == "EASY":
-        st.success(f"EASY")
+        st.success(f"✅ EASY")
     elif complexity == "NON_NESTED_COMPLEX":
-        st.warning(f"NON_NESTED_COMPLEX")
+        st.warning(f"⚠️ NON_NESTED_COMPLEX")
     else:
-        st.error(f"NESTED_COMPLEX")
+        st.error(f"🔴 NESTED_COMPLEX")
 
 
 def display_validation_badge(is_valid: bool, validation_score: float):
     """Display validation status badge"""
     if is_valid:
-        st.success(f"Valid SQL (Score: {validation_score:.2f})")
+        st.success(f"✅ Valid SQL (Score: {validation_score:.2f})")
     else:
-        st.error(f"Invalid SQL (Score: {validation_score:.2f})")
+        st.error(f"❌ Invalid SQL (Score: {validation_score:.2f})")
 
 
 def display_schema_tab(result: dict):
-    """
-    Display schema linking results with three-layer breakdown
-    Enhanced version showing Layer 1, Layer 2, and Layer 3 details
-    """
+    """Display schema linking results - same as before"""
     st.markdown("### Schema Linking (Three-Layer Approach)")
     
     # Overall summary metrics
@@ -50,7 +47,7 @@ def display_schema_tab(result: dict):
         # Create tabs for each layer
         layer_tabs = st.tabs(["🔍 Layer 1: Pre-filter", "🤖 Layer 2: LLM Analysis", "✅ Layer 3: Validation", "📊 Final Results"])
         
-        # ===== LAYER 1: STRING MATCHING PRE-FILTER =====
+        # LAYER 1
         with layer_tabs[0]:
             st.markdown("#### String Matching Pre-filter")
             st.caption("Uses fuzzy matching to identify candidate tables and columns")
@@ -64,7 +61,6 @@ def display_schema_tab(result: dict):
                     st.markdown("**Candidate Tables**")
                     st.info(f"Found {len(layer1['tables'])} candidate tables")
                     
-                    # Show match details if available
                     if 'match_details' in layer1 and layer1['match_details']['table_matches']:
                         for match in layer1['match_details']['table_matches'][:10]:
                             reason = match['reason']
@@ -80,29 +76,14 @@ def display_schema_tab(result: dict):
                     total_cols = sum(len(cols) for cols in layer1['columns'].values())
                     st.info(f"Found {total_cols} candidate columns")
                     
-                    # Show sample columns
                     if layer1['columns']:
                         count = 0
                         for table, cols in sorted(layer1['columns'].items()):
                             if cols and count < 5:
                                 st.write(f"**{table}**: {', '.join(sorted(list(cols)[:3]))}{'...' if len(cols) > 3 else ''}")
                                 count += 1
-                
-                # Show match reasoning
-                if 'match_details' in layer1:
-                    with st.expander("📋 View Detailed Match Information"):
-                        st.markdown("**Table Matches:**")
-                        for match in layer1['match_details']['table_matches']:
-                            st.caption(f"• {match['table']} - {match['reason']} match (score: {match.get('fuzzy_score', 1.0):.2f})")
-                        
-                        st.markdown("**Column Matches:**")
-                        for i, match in enumerate(layer1['match_details']['column_matches'][:20]):
-                            st.caption(f"• {match['table']}.{match['column']} - {match['reason']} match")
-                            if i >= 19 and len(layer1['match_details']['column_matches']) > 20:
-                                st.caption(f"... and {len(layer1['match_details']['column_matches']) - 20} more")
-                                break
         
-        # ===== LAYER 2: LLM ANALYSIS =====
+        # LAYER 2
         with layer_tabs[1]:
             st.markdown("#### LLM Analysis with Pre-filter Hints")
             st.caption("LLM analyzes question with candidate tables as hints")
@@ -117,7 +98,6 @@ def display_schema_tab(result: dict):
                     st.markdown("**LLM Identified Tables**")
                     st.info(f"Identified {len(llm_elements['tables'])} tables")
                     
-                    # Show which were from Layer 1 vs new
                     layer1_tables = layer_details['layer1']['tables']
                     for table in sorted(llm_elements['tables']):
                         if table in layer1_tables:
@@ -133,12 +113,8 @@ def display_schema_tab(result: dict):
                     for table, cols in sorted(llm_elements['columns'].items()):
                         if cols:
                             st.write(f"**{table}**: {', '.join(sorted(list(cols)[:3]))}{'...' if len(cols) > 3 else ''}")
-                
-                # Show LLM analysis
-                with st.expander("🤖 View Full LLM Analysis"):
-                    st.text(layer2['llm_analysis'])
         
-        # ===== LAYER 3: POST-VALIDATION =====
+        # LAYER 3
         with layer_tabs[2]:
             st.markdown("#### Post-Validation & Correction")
             st.caption("Validates and corrects LLM results against actual schema")
@@ -146,7 +122,6 @@ def display_schema_tab(result: dict):
             if 'layer3' in layer_details:
                 layer3 = layer_details['layer3']
                 
-                # Show corrections if any
                 validation_log = layer3.get('validation_log', [])
                 corrections = [v for v in validation_log if v['status'] == 'corrected']
                 
@@ -157,32 +132,8 @@ def display_schema_tab(result: dict):
                             st.caption(f"• {correction['element']} → {correction['corrected_to']}")
                 else:
                     st.success("✓ No corrections needed - all LLM outputs were valid")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("**Validated Tables**")
-                    st.info(f"Final: {len(layer3['tables'])} tables")
-                    for table in sorted(layer3['tables']):
-                        st.write(f"✓ {table}")
-                
-                with col2:
-                    st.markdown("**Validated Columns**")
-                    total_cols = sum(len(cols) for cols in layer3['columns'].values())
-                    st.info(f"Final: {total_cols} columns")
-                    
-                    for table, cols in sorted(layer3['columns'].items()):
-                        if cols:
-                            st.write(f"**{table}**: {', '.join(sorted(list(cols)[:3]))}{'...' if len(cols) > 3 else ''}")
-                
-                # Show detailed validation log
-                with st.expander("📋 View Detailed Validation Log"):
-                    for log_entry in validation_log:
-                        status_emoji = "✅" if log_entry['status'] == 'valid' else "🔧"
-                        in_layer1 = "✓" if log_entry.get('in_layer1', False) else ""
-                        st.caption(f"{status_emoji} {log_entry['element']} - {log_entry['status']} {in_layer1}")
         
-        # ===== FINAL RESULTS =====
+        # FINAL RESULTS
         with layer_tabs[3]:
             st.markdown("#### Final Schema Links")
             st.caption("Pruned schema after three-layer processing")
@@ -197,31 +148,9 @@ def display_schema_tab(result: dict):
                         st.write(f"**Columns ({len(cols)}):**")
                         for col in sorted(cols):
                             st.write(f"  • {col}")
-            
-            if schema_links['foreign_keys']:
-                st.markdown("**Foreign Key Relationships:**")
-                for fk in schema_links['foreign_keys']:
-                    st.info(f"{fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}")
-            
-            # Show join paths if available
-            if schema_links.get('join_paths'):
-                st.markdown("**Possible Join Paths:**")
-                for i, path in enumerate(schema_links['join_paths'], 1):
-                    st.caption(f"{i}. {' → '.join(path)}")
-    
-    else:
-        # Fallback to original display if no layer details
-        st.markdown("**Relevant Tables:**")
-        for table in sorted(result['step1']['schema_links']['tables']):
-            st.success(f"Table: {table}")
-        
-        if result['step1']['schema_links']['foreign_keys']:
-            st.markdown("**Foreign Keys:**")
-            for fk in result['step1']['schema_links']['foreign_keys']:
-                st.info(f"{fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}")
     
     # Show full reasoning
-    with st.expander("📝 View Full Reasoning"):
+    with st.expander("🔍 View Full Reasoning"):
         st.text(result['step1']['reasoning'])
 
 
@@ -232,13 +161,13 @@ def display_complexity_tab(result: dict):
     
     col1, col2 = st.columns(2)
     with col1:
-        st.write(f"* Tables: {len(result['step2']['required_tables'])}")
-        st.write(f"* JOINs: {'Yes' if result['step2']['needs_joins'] else 'No'}")
-        st.write(f"* Subqueries: {'Yes' if result['step2']['needs_subqueries'] else 'No'}")
+        st.write(f"• Tables: {len(result['step2']['required_tables'])}")
+        st.write(f"• JOINs: {'Yes' if result['step2']['needs_joins'] else 'No'}")
+        st.write(f"• Subqueries: {'Yes' if result['step2']['needs_subqueries'] else 'No'}")
     with col2:
         if result['step2']['aggregations']:
-            st.write(f"* Aggregations: {', '.join(result['step2']['aggregations'])}")
-        st.write(f"* GROUP BY: {'Yes' if result['step2']['has_grouping'] else 'No'}")
+            st.write(f"• Aggregations: {', '.join(result['step2']['aggregations'])}")
+        st.write(f"• GROUP BY: {'Yes' if result['step2']['has_grouping'] else 'No'}")
     
     if result['step2'].get('sub_questions'):
         st.markdown("**Sub-questions:**")
@@ -387,12 +316,7 @@ def display_validation_tab(result: dict):
         if validation['errors']:
             st.markdown("### Errors")
             for i, error in enumerate(validation['errors'], 1):
-                severity_label = {
-                    'CRITICAL': 'CRITICAL',
-                    'HIGH': 'HIGH',
-                    'MEDIUM': 'MEDIUM',
-                    'LOW': 'LOW'
-                }.get(error['severity'], 'UNKNOWN')
+                severity_label = error['severity']
                 
                 with st.expander(f"Error {i}: {error['type']} [{severity_label}]", expanded=True):
                     st.error(error['message'])
@@ -402,7 +326,7 @@ def display_validation_tab(result: dict):
                     if 'column' in error:
                         st.write(f"**Column:** `{error['column']}`")
         else:
-            st.success("No errors found!")
+            st.success("✅ No errors found!")
         
         st.markdown("---")
         
@@ -410,10 +334,7 @@ def display_validation_tab(result: dict):
         if validation['warnings']:
             st.markdown("### Warnings")
             for i, warning in enumerate(validation['warnings'], 1):
-                severity_label = {
-                    'MEDIUM': 'MEDIUM',
-                    'LOW': 'LOW'
-                }.get(warning['severity'], 'UNKNOWN')
+                severity_label = warning['severity']
                 
                 with st.expander(f"Warning {i}: {warning['type']} [{severity_label}]"):
                     st.warning(warning['message'])
@@ -449,15 +370,15 @@ def display_execution_tab(result: dict, example: dict):
         return
     
     # Display generated SQL execution
-    st.markdown("Generated SQL Execution")
+    st.markdown("**Generated SQL Execution**")
     gen_exec = result['step10_generated']
     
     col1, col2 = st.columns(2)
     with col1:
         if gen_exec['success']:
-            st.success("Executed Successfully")
+            st.success("✅ Executed Successfully")
         else:
-            st.error("Execution Failed")
+            st.error("❌ Execution Failed")
     
     with col2:
         st.metric("Execution Time", f"{gen_exec['execution_time']:.3f}s")
@@ -482,15 +403,15 @@ def display_execution_tab(result: dict, example: dict):
     # Display ground truth execution if available
     if result.get('step10_gold'):
         st.markdown("---")
-        st.markdown("Ground Truth SQL Execution")
+        st.markdown("**Ground Truth SQL Execution**")
         gold_exec = result['step10_gold']
         
         col1, col2 = st.columns(2)
         with col1:
             if gold_exec['success']:
-                st.success("Executed Successfully")
+                st.success("✅ Executed Successfully")
             else:
-                st.error("Execution Failed")
+                st.error("❌ Execution Failed")
         
         with col2:
             st.metric("Execution Time", f"{gold_exec['execution_time']:.3f}s")
@@ -514,7 +435,7 @@ def display_execution_tab(result: dict, example: dict):
 
 
 def display_evaluation_tab(result: dict, example: dict):
-    """Display evaluation results (Step 11)"""
+    """Display evaluation results (Step 11) - FIXED for new Spider metrics"""
     st.markdown("### Evaluation (Step 11)")
     
     # Check if evaluation was performed
@@ -525,7 +446,7 @@ def display_evaluation_tab(result: dict, example: dict):
     eval_result = result['step11']
     
     # Overall score
-    st.markdown("Overall Evaluation Score")
+    st.markdown("**Overall Evaluation Score**")
     
     score = eval_result['evaluation_score']
     
@@ -550,72 +471,86 @@ def display_evaluation_tab(result: dict, example: dict):
     
     st.markdown("---")
     
-    # Individual metrics
-    st.markdown("Individual Metrics")
+    # Spider Benchmark Metrics
+    st.markdown("**Spider Benchmark Metrics**")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
     
     with col1:
+        st.markdown("**Primary Metric: Execution Accuracy (EX)**")
         if eval_result['execution_accuracy']:
-            st.success("Execution Accuracy: PASS")
+            st.success("✅ PASS - Results match exactly")
+            st.caption("Most important metric - queries produce identical results")
         else:
-            st.error("Execution Accuracy: FAIL")
+            st.error("❌ FAIL - Results don't match")
+            st.caption("Critical issue - output differs from ground truth")
     
     with col2:
-        if eval_result['exact_match']:
-            st.success("Exact Match: YES")
+        st.markdown("**Secondary Metric: Exact-Set-Match (EM)**")
+        if eval_result['exact_set_match']:
+            st.success("✅ PASS - SQL structure matches")
+            st.caption("SQL clauses match when treated as sets")
         else:
-            st.error("Exact Match: NO")
-    
-    with col3:
-        if eval_result['normalized_match']:
-            st.success("Normalized Match: YES")
-        else:
-            st.error("Normalized Match: NO")
-    
-    with col4:
-        sem_score = eval_result['semantic_equivalence']
-        if sem_score >= 0.8:
-            st.success(f"Semantic: {sem_score:.2f}")
-        elif sem_score >= 0.6:
-            st.warning(f"Semantic: {sem_score:.2f}")
-        else:
-            st.error(f"Semantic: {sem_score:.2f}")
+            st.error("❌ FAIL - SQL structure differs")
+            st.caption("Different structure (acceptable if EX passes)")
     
     st.markdown("---")
     
-    # Component scores
-    st.markdown("Component-Level Scores")
+    # Component-level breakdown
+    st.markdown("**Component-Level Match (for Exact-Set-Match)**")
     
-    component_scores = eval_result['component_scores']
+    component_match = eval_result.get('component_match', {})
     
-    cols = st.columns(len(component_scores))
-    
-    for i, (component, score) in enumerate(sorted(component_scores.items())):
-        with cols[i]:
-            if score >= 0.8:
-                st.success(f"**{component.upper()}**\n{score:.2f}")
-            elif score >= 0.5:
-                st.warning(f"**{component.upper()}**\n{score:.2f}")
-            else:
-                st.error(f"**{component.upper()}**\n{score:.2f}")
+    if component_match:
+        cols = st.columns(min(len(component_match), 4))
+        
+        for i, (component, matches) in enumerate(sorted(component_match.items())):
+            col_idx = i % 4
+            with cols[col_idx]:
+                if matches:
+                    st.success(f"✅ {component}")
+                else:
+                    st.error(f"❌ {component}")
     
     st.markdown("---")
     
-    # Detailed reasoning
-    with st.expander("Full Evaluation Report"):
+    # Explanation of metrics
+    with st.expander("ℹ️ Understanding Spider Metrics"):
+        st.markdown("""
+        **Execution Accuracy (EX)** - Primary Metric (80% weight)
+        - Compares actual query results between generated and ground truth SQL
+        - This is the **most important** metric - queries must produce identical results
+        - Multiple different SQL queries can be correct if they produce the same results
+        
+        **Exact-Set-Match (EM)** - Secondary Metric (20% weight)
+        - Treats each SQL clause (SELECT, FROM, WHERE, etc.) as a set
+        - Compares whether clauses match structurally
+        - Less important than EX - different structures can be equally correct
+        
+        **Component Match** - Detailed Breakdown
+        - Shows which specific SQL components match or differ
+        - Helps understand where the SQL structure differs
+        - Used for debugging and improvement suggestions
+        
+        **Composite Score**: (EX × 0.80) + (EM × 0.20)
+        - Weighted heavily toward execution accuracy
+        - Reflects research-backed evaluation priorities
+        """)
+    
+    # Full evaluation reasoning
+    with st.expander("📋 Full Evaluation Report"):
         st.text(eval_result['reasoning'])
 
 
 def display_retry_history_tab(retry_result: dict):
-    """Display retry attempt history"""
+    """Display retry attempt history - FIXED for new evaluation structure"""
     st.markdown("### Retry History")
     
     total_attempts = retry_result['total_attempts']
     success = retry_result['success']
     
     st.markdown(f"**Total Attempts:** {total_attempts}")
-    st.markdown(f"**Final Status:** {'SUCCESS' if success else 'MAX RETRIES REACHED'}")
+    st.markdown(f"**Final Status:** {'✅ SUCCESS' if success else '⚠️ MAX RETRIES REACHED'}")
     
     st.markdown("---")
     
@@ -624,7 +559,14 @@ def display_retry_history_tab(retry_result: dict):
         result = attempt_info['result']
         attempt_num = attempt_info['attempt_number']
         
-        status = "Success" if result.get('step11', {}).get('execution_accuracy') else "Issues"
+        # Determine status based on new evaluation structure
+        has_eval = result.get('step11') is not None
+        if has_eval:
+            exec_acc = result['step11'].get('execution_accuracy', False)
+            eval_score = result['step11'].get('evaluation_score', 0)
+            status = "✅ Success" if exec_acc else "⚠️ Issues"
+        else:
+            status = "⚠️ No Evaluation"
         
         with st.expander(
             f"Attempt {attempt_num} - {status}",
@@ -636,9 +578,9 @@ def display_retry_history_tab(retry_result: dict):
                 st.markdown("**Execution**")
                 if result.get('step10_generated'):
                     if result['step10_generated']['success']:
-                        st.success("Success")
+                        st.success("✅ Success")
                     else:
-                        st.error("Failed")
+                        st.error("❌ Failed")
                         st.caption(result['step10_generated']['error_message'][:50])
             
             with col2:
@@ -646,24 +588,42 @@ def display_retry_history_tab(retry_result: dict):
                 if result.get('step7'):
                     val_score = result['step7']['validation_score']
                     if result['step7']['is_valid']:
-                        st.success(f"Valid ({val_score:.2f})")
+                        st.success(f"✅ Valid ({val_score:.2f})")
                     else:
-                        st.error(f"Invalid ({val_score:.2f})")
+                        st.error(f"❌ Invalid ({val_score:.2f})")
             
             with col3:
                 st.markdown("**Evaluation**")
-                if result.get('step11'):
-                    eval_score = result['step11']['evaluation_score']
-                    if eval_score >= 0.7:
-                        st.success(f"{eval_score:.2f}")
-                    elif eval_score >= 0.5:
-                        st.warning(f"{eval_score:.2f}")
+                if has_eval:
+                    # Use new evaluation structure
+                    exec_acc = result['step11'].get('execution_accuracy', False)
+                    eval_score = result['step11'].get('evaluation_score', 0)
+                    
+                    if exec_acc:
+                        st.success(f"✅ EX: 1.0")
+                        st.caption(f"Score: {eval_score:.2f}")
                     else:
-                        st.error(f"{eval_score:.2f}")
+                        st.error(f"❌ EX: 0.0")
+                        st.caption(f"Score: {eval_score:.2f}")
+                else:
+                    st.info("No evaluation")
             
             st.markdown("**Generated SQL:**")
             st.code(result.get('final_sql', 'N/A'), language='sql')
+            
+            # Show metrics details if available
+            if has_eval:
+                st.markdown("**Spider Metrics:**")
+                metrics_col1, metrics_col2 = st.columns(2)
+                
+                with metrics_col1:
+                    exec_acc = result['step11'].get('execution_accuracy', False)
+                    st.write(f"• Execution Accuracy (EX): {'✅ 1.0' if exec_acc else '❌ 0.0'}")
+                
+                with metrics_col2:
+                    exact_set = result['step11'].get('exact_set_match', False)
+                    st.write(f"• Exact-Set-Match (EM): {'✅ 1.0' if exact_set else '❌ 0.0'}")
     
     # Show reasoning
-    with st.expander("Retry Process Reasoning"):
+    with st.expander("📋 Retry Process Reasoning"):
         st.text(retry_result['reasoning'])

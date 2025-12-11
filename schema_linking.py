@@ -514,11 +514,11 @@ Provide concise analysis:"""
         if len(tables) <= 1:
             return tables, columns
         
-        # Build connectivity graph
+        # Build connectivity graph - FIXED: store only table names
         graph = defaultdict(list)
         for fk in foreign_keys:
-            graph[fk['from_table']].append((fk['to_table'], fk))
-            graph[fk['to_table']].append((fk['from_table'], fk))
+            graph[fk['from_table']].append(fk['to_table'])
+            graph[fk['to_table']].append(fk['from_table'])
         
         # Check if all tables are connected
         if not self._are_tables_connected(tables, graph):
@@ -540,7 +540,7 @@ Provide concise analysis:"""
         if len(tables) <= 1:
             return True
         
-        # BFS to check connectivity
+        # BFS to check connectivity - FIXED: no tuple unpacking
         visited = set()
         queue = [next(iter(tables))]
         
@@ -550,7 +550,7 @@ Provide concise analysis:"""
                 continue
             visited.add(current)
             
-            for neighbor, _ in graph.get(current, []):
+            for neighbor in graph.get(current, []):
                 if neighbor in tables and neighbor not in visited:
                     queue.append(neighbor)
         

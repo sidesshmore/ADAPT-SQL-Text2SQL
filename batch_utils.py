@@ -1,6 +1,6 @@
 """
 Batch Processing Utilities for ADAPT-SQL
-Helper functions for batch processing and display
+Updated with full UI display matching app.py
 """
 import streamlit as st
 import pandas as pd
@@ -10,29 +10,42 @@ from typing import Dict, List
 
 def display_batch_summary(results: List[Dict]):
     """Display summary statistics for batch results"""
-    st.markdown("### Summary Statistics")
+    st.markdown("### 📊 Summary Statistics")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         st.metric("Total Queries", len(results))
     
     with col2:
-        valid_count = sum(1 for r in results if r['result'].get('step7', {}).get('is_valid', False))
+        valid_count = sum(1 for r in results if r['result'].get('final_is_valid', False))
         st.metric("Valid SQL", valid_count)
     
     with col3:
-        easy_count = sum(1 for r in results if r['result']['step2']['complexity_class'].value == "EASY")
-        st.metric("EASY Queries", easy_count)
+        if any(r['result'].get('step10_generated') for r in results):
+            exec_success = sum(1 for r in results if r['result'].get('step10_generated', {}).get('success', False))
+            st.metric("Executed", exec_success)
+        else:
+            st.metric("Executed", "N/A")
     
     with col4:
-        avg_score = sum(r['result'].get('step7', {}).get('validation_score', 0) for r in results) / len(results) if results else 0
-        st.metric("Avg Validation Score", f"{avg_score:.2f}")
+        if any(r['result'].get('step11') for r in results):
+            ex_acc = sum(1 for r in results if r['result'].get('step11', {}).get('execution_accuracy', False))
+            st.metric("EX = 1.0", ex_acc)
+        else:
+            st.metric("EX = 1.0", "N/A")
+    
+    with col5:
+        if any(r['result'].get('step11') for r in results):
+            avg_score = sum(r['result'].get('step11', {}).get('evaluation_score', 0) for r in results if r['result'].get('step11')) / len([r for r in results if r['result'].get('step11')])
+            st.metric("Avg Score", f"{avg_score:.2f}")
+        else:
+            st.metric("Avg Score", "N/A")
 
 
 def display_complexity_distribution(results: List[Dict]):
     """Display complexity distribution"""
-    st.markdown("### Complexity Distribution")
+    st.markdown("### 📈 Complexity Distribution")
     
     complexity_counts = {}
     for r in results:
@@ -41,16 +54,22 @@ def display_complexity_distribution(results: List[Dict]):
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("EASY", complexity_counts.get("EASY", 0))
+        count = complexity_counts.get("EASY", 0)
+        pct = (count / len(results) * 100) if results else 0
+        st.metric("EASY", count, f"{pct:.1f}%")
     with col2:
-        st.metric("NON_NESTED_COMPLEX", complexity_counts.get("NON_NESTED_COMPLEX", 0))
+        count = complexity_counts.get("NON_NESTED_COMPLEX", 0)
+        pct = (count / len(results) * 100) if results else 0
+        st.metric("NON_NESTED", count, f"{pct:.1f}%")
     with col3:
-        st.metric("NESTED_COMPLEX", complexity_counts.get("NESTED_COMPLEX", 0))
+        count = complexity_counts.get("NESTED_COMPLEX", 0)
+        pct = (count / len(results) * 100) if results else 0
+        st.metric("NESTED", count, f"{pct:.1f}%")
 
 
 def display_execution_summary(results: List[Dict]):
     """Display execution statistics"""
-    st.markdown("### Execution Statistics")
+    st.markdown("### ⚡ Execution Statistics")
     
     executed_count = sum(1 for r in results if r['result'].get('step10_generated'))
     if executed_count == 0:
@@ -62,7 +81,12 @@ def display_execution_summary(results: List[Dict]):
         if r['result'].get('step10_generated', {}).get('success', False)
     )
     
-    col1, col2, col3 = st.columns(3)
+    avg_time = sum(
+        r['result'].get('step10_generated', {}).get('execution_time', 0)
+        for r in results if r['result'].get('step10_generated', {}).get('success')
+    ) / success_count if success_count > 0 else 0
+    
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Executed", executed_count)
     with col2:
@@ -70,11 +94,13 @@ def display_execution_summary(results: List[Dict]):
     with col3:
         success_rate = (success_count / executed_count * 100) if executed_count > 0 else 0
         st.metric("Success Rate", f"{success_rate:.1f}%")
+    with col4:
+        st.metric("Avg Exec Time", f"{avg_time:.3f}s")
 
 
 def display_evaluation_summary(results: List[Dict]):
     """Display evaluation statistics"""
-    st.markdown("### Evaluation Statistics")
+    st.markdown("### 🎯 Evaluation Statistics (Spider Metrics)")
     
     evaluated_count = sum(1 for r in results if r['result'].get('step11'))
     if evaluated_count == 0:
@@ -86,37 +112,46 @@ def display_evaluation_summary(results: List[Dict]):
         if r['result'].get('step11', {}).get('execution_accuracy', False)
     )
     
+    exact_set_count = sum(
+        1 for r in results 
+        if r['result'].get('step11', {}).get('exact_set_match', False)
+    )
+    
     avg_eval_score = sum(
         r['result'].get('step11', {}).get('evaluation_score', 0) 
         for r in results if r['result'].get('step11')
     ) / evaluated_count if evaluated_count > 0 else 0
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Evaluated", evaluated_count)
     with col2:
-        st.metric("Execution Accuracy", exec_accuracy_count)
+        ex_rate = (exec_accuracy_count / evaluated_count * 100) if evaluated_count > 0 else 0
+        st.metric("EX = 1.0", exec_accuracy_count, f"{ex_rate:.1f}%")
     with col3:
+        em_rate = (exact_set_count / evaluated_count * 100) if evaluated_count > 0 else 0
+        st.metric("EM = 1.0", exact_set_count, f"{em_rate:.1f}%")
+    with col4:
         st.metric("Avg Score", f"{avg_eval_score:.2f}")
 
 
 def display_retry_summary(results: List[Dict]):
     """Display retry statistics"""
-    st.markdown("### Retry Statistics")
+    st.markdown("### 🔄 Retry Statistics")
     
-    retry_count = sum(1 for r in results if r['result'].get('retry_info'))
+    retry_count = sum(1 for r in results if r.get('retry_result'))
     if retry_count == 0:
         st.info("No queries used full pipeline retry")
         return
     
     total_attempts = sum(
-        r['result']['retry_info']['total_attempts'] 
-        for r in results if r['result'].get('retry_info')
+        r['retry_result']['total_attempts'] 
+        for r in results if r.get('retry_result')
     )
     
     success_count = sum(
         1 for r in results 
-        if r['result'].get('retry_info', {}).get('success', False)
+        if r.get('retry_result', {}).get('success', False)
     )
     
     col1, col2, col3, col4 = st.columns(4)
@@ -132,13 +167,13 @@ def display_retry_summary(results: List[Dict]):
         st.metric("Retry Success Rate", f"{success_rate:.1f}%")
 
 
-def display_query_summary_card(idx: int, example: Dict, result: Dict):
+def display_query_summary_card(idx: int, example: Dict, result: Dict, retry_result: Dict = None):
     """Display a summary card for a single query"""
     # Get complexity
     complexity = result['step2']['complexity_class'].value
     
     # Get validation status
-    is_valid = result.get('step7', {}).get('is_valid', False)
+    is_valid = result.get('final_is_valid', False)
     validation_score = result.get('step7', {}).get('validation_score', 0)
     
     # Get execution status
@@ -146,52 +181,55 @@ def display_query_summary_card(idx: int, example: Dict, result: Dict):
     
     # Get evaluation score
     eval_score = result.get('step11', {}).get('evaluation_score', None)
-    
-    # Get retry info
-    retry_info = result.get('retry_info')
+    ex_acc = result.get('step11', {}).get('execution_accuracy', None)
     
     # Display card
-    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-    
-    with col1:
-        st.markdown(f"**#{idx + 1}:** {example['question'][:60]}...")
-        st.caption(f"Database: {example['db_id']}")
-        if retry_info:
-            st.caption(f"Retry: {retry_info['total_attempts']} attempts | {'Success' if retry_info['success'] else 'Max reached'}")
-    
-    with col2:
-        if complexity == "EASY":
-            st.success(complexity)
-        elif complexity == "NON_NESTED_COMPLEX":
-            st.warning("NON_NESTED")
-        else:
-            st.error("NESTED")
-    
-    with col3:
-        if is_valid:
-            st.success(f"Valid: {validation_score:.2f}")
-        else:
-            st.error(f"Invalid: {validation_score:.2f}")
-    
-    with col4:
-        if eval_score is not None:
-            if eval_score >= 0.7:
-                st.success(f"Score: {eval_score:.2f}")
-            elif eval_score >= 0.5:
-                st.warning(f"Score: {eval_score:.2f}")
+    with st.container():
+        col1, col2, col3, col4, col5 = st.columns([4, 1, 1, 1, 1])
+        
+        with col1:
+            st.markdown(f"**#{idx + 1}:** {example['question'][:80]}...")
+            st.caption(f"📁 Database: {example['db_id']}")
+            if retry_result:
+                st.caption(f"🔄 Retry: {retry_result['total_attempts']} attempts | {'✅ Success' if retry_result['success'] else '⚠️ Max reached'}")
+        
+        with col2:
+            if complexity == "EASY":
+                st.success("✅ EASY")
+            elif complexity == "NON_NESTED_COMPLEX":
+                st.warning("⚠️ NON_NESTED")
             else:
-                st.error(f"Score: {eval_score:.2f}")
-        elif exec_success is not None:
-            if exec_success:
-                st.info("Exec: OK")
+                st.error("🔴 NESTED")
+        
+        with col3:
+            if is_valid:
+                st.success(f"✅ {validation_score:.2f}")
             else:
-                st.error("Exec: FAIL")
-        else:
-            st.info("Not executed")
+                st.error(f"❌ {validation_score:.2f}")
+        
+        with col4:
+            if exec_success is not None:
+                if exec_success:
+                    st.success("✅ Exec")
+                else:
+                    st.error("❌ Exec")
+            else:
+                st.info("⊘ No Exec")
+        
+        with col5:
+            if eval_score is not None:
+                if ex_acc:
+                    st.success(f"✅ {eval_score:.2f}")
+                elif eval_score >= 0.5:
+                    st.warning(f"⚠️ {eval_score:.2f}")
+                else:
+                    st.error(f"❌ {eval_score:.2f}")
+            else:
+                st.info("⊘ No Eval")
 
 
 def display_query_details(idx: int, example: Dict, result: Dict, retry_result: Dict = None):
-    """Display detailed results for a single query"""
+    """Display detailed results for a single query with full UI matching app.py"""
     from display_utils import (
         display_schema_tab,
         display_complexity_tab,
@@ -204,21 +242,35 @@ def display_query_details(idx: int, example: Dict, result: Dict, retry_result: D
         display_retry_history_tab
     )
     
-    with st.expander(f"Query #{idx + 1}: {example['question'][:80]}...", expanded=False):
-        st.markdown(f"**Database:** `{example['db_id']}`")
-        st.markdown(f"**Question:** {example['question']}")
+    with st.expander(f"📋 Query #{idx + 1}: {example['question'][:100]}...", expanded=False):
+        # Header with key info
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            st.markdown(f"**Question:** {example['question']}")
+        with col2:
+            st.markdown(f"**Database:** `{example['db_id']}`")
+        with col3:
+            complexity = result['step2']['complexity_class'].value
+            if complexity == "EASY":
+                st.success(f"✅ {complexity}")
+            elif complexity == "NON_NESTED_COMPLEX":
+                st.warning(f"⚠️ {complexity}")
+            else:
+                st.error(f"🔴 {complexity}")
+        
+        st.markdown("---")
         
         # Create tabs - add Retry History if available
         if retry_result:
             tabs = st.tabs([
-                "Schema", "Complexity", "Examples", "Route", 
-                "SQL", "Validation", "Execution", "Evaluation", "Retry History"
+                "📊 Schema", "🎯 Complexity", "🔍 Examples", "🔀 Route", 
+                "💻 SQL", "✅ Validation", "⚡ Execution", "📈 Evaluation", "🔄 Retry History"
             ])
             has_retry_tab = True
         else:
             tabs = st.tabs([
-                "Schema", "Complexity", "Examples", "Route", 
-                "SQL", "Validation", "Execution", "Evaluation"
+                "📊 Schema", "🎯 Complexity", "🔍 Examples", "🔀 Route", 
+                "💻 SQL", "✅ Validation", "⚡ Execution", "📈 Evaluation"
             ])
             has_retry_tab = False
         
@@ -267,12 +319,12 @@ def filter_results(results: List[Dict], filter_complexity: List[str], filter_val
     if filter_validity == "Valid Only":
         filtered = [
             r for r in filtered 
-            if r['result'].get('step7', {}).get('is_valid', False)
+            if r['result'].get('final_is_valid', False)
         ]
     elif filter_validity == "Invalid Only":
         filtered = [
             r for r in filtered 
-            if not r['result'].get('step7', {}).get('is_valid', True)
+            if not r['result'].get('final_is_valid', True)
         ]
     
     # Filter by execution
@@ -289,7 +341,18 @@ def filter_results(results: List[Dict], filter_complexity: List[str], filter_val
         ]
     
     # Filter by evaluation
-    if filter_evaluation == "High Score (>=0.7)":
+    if filter_evaluation == "EX = 1.0 Only":
+        filtered = [
+            r for r in filtered
+            if r['result'].get('step11', {}).get('execution_accuracy', False)
+        ]
+    elif filter_evaluation == "EX = 0.0 Only":
+        filtered = [
+            r for r in filtered
+            if r['result'].get('step11') and 
+               not r['result']['step11'].get('execution_accuracy', True)
+        ]
+    elif filter_evaluation == "High Score (>=0.7)":
         filtered = [
             r for r in filtered
             if r['result'].get('step11', {}).get('evaluation_score', 0) >= 0.7
@@ -309,13 +372,7 @@ def export_summary_csv(results: List[Dict]) -> str:
     
     for r in results:
         # Get generated SQL
-        generated_sql = None
-        if r['result'].get('step6a'):
-            generated_sql = r['result']['step6a']['generated_sql']
-        elif r['result'].get('step6b'):
-            generated_sql = r['result']['step6b']['generated_sql']
-        elif r['result'].get('step6c'):
-            generated_sql = r['result']['step6c']['generated_sql']
+        generated_sql = r['result'].get('final_sql', '')
         
         # Get execution info
         exec_success = None
@@ -327,16 +384,18 @@ def export_summary_csv(results: List[Dict]) -> str:
         # Get evaluation info
         eval_score = None
         exec_accuracy = None
+        exact_set_match = None
         if r['result'].get('step11'):
             eval_score = r['result']['step11']['evaluation_score']
             exec_accuracy = r['result']['step11']['execution_accuracy']
+            exact_set_match = r['result']['step11']['exact_set_match']
         
         # Get retry info
         retry_attempts = None
         retry_success = None
-        if r['result'].get('retry_info'):
-            retry_attempts = r['result']['retry_info']['total_attempts']
-            retry_success = r['result']['retry_info']['success']
+        if r.get('retry_result'):
+            retry_attempts = r['retry_result']['total_attempts']
+            retry_success = r['retry_result']['success']
         
         summary_data.append({
             'Index': r['index'],
@@ -346,14 +405,15 @@ def export_summary_csv(results: List[Dict]) -> str:
             'Strategy': r['result']['step5']['strategy'].value,
             'Generated_SQL': generated_sql,
             'Ground_Truth_SQL': r['example'].get('query', ''),
-            'Is_Valid': r['result'].get('step7', {}).get('is_valid', None),
+            'Is_Valid': r['result'].get('final_is_valid', None),
             'Validation_Score': r['result'].get('step7', {}).get('validation_score', None),
             'Num_Errors': len(r['result'].get('step7', {}).get('errors', [])),
             'Num_Warnings': len(r['result'].get('step7', {}).get('warnings', [])),
             'Execution_Success': exec_success,
             'Execution_Time': exec_time,
             'Evaluation_Score': eval_score,
-            'Execution_Accuracy': exec_accuracy,
+            'Execution_Accuracy_EX': exec_accuracy,
+            'Exact_Set_Match_EM': exact_set_match,
             'Retry_Attempts': retry_attempts,
             'Retry_Success': retry_success
         })
@@ -421,7 +481,7 @@ def export_full_json(results: List[Dict]) -> str:
 
 def display_error_analysis(results: List[Dict]):
     """Display analysis of common errors"""
-    st.markdown("### Error Analysis")
+    st.markdown("### 🔍 Error Analysis")
     
     # Collect all errors
     error_types = {}
@@ -432,7 +492,7 @@ def display_error_analysis(results: List[Dict]):
             error_types[error_type] = error_types.get(error_type, 0) + 1
     
     if not error_types:
-        st.success("No validation errors found!")
+        st.success("✅ No validation errors found!")
         return
     
     # Display error distribution

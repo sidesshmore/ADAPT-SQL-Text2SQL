@@ -1,11 +1,11 @@
 """
-ADAPT-SQL Batch Processing Page - Refactored
-Process multiple queries with execution, evaluation, and retry support
+ADAPT-SQL Batch Processing Page - Updated with Enhanced UI
+Process multiple queries with full detailed view matching app.py
 """
 import streamlit as st
 import json
 import sqlite3
-from pathlib import Pathmax
+from pathlib import Path
 from datetime import datetime
 import sys
 
@@ -31,7 +31,7 @@ from batch_utils import (
 
 st.set_page_config(
     page_title="Batch Processing - ADAPT-SQL", 
-    page_icon="Batch", 
+    page_icon="📦", 
     layout="wide"
 )
 
@@ -100,106 +100,134 @@ def get_foreign_keys_from_sqlite(db_path: str) -> list:
 
 
 def main():
-    st.title("Batch Processing")
-    st.markdown("Process multiple queries and analyze results in detail")
+    st.title("📦 Batch Processing - ADAPT-SQL")
+    st.markdown("Process multiple queries with comprehensive evaluation and detailed analysis")
     st.markdown("---")
     
     # Configuration sidebar
     with st.sidebar:
-        st.header("Configuration")
+        st.header("⚙️ Configuration")
         
-        model = st.selectbox("Model", ["llama3.2", "codellama", "mistral", "qwen2.5"])
+        model = st.selectbox("🤖 Model", ["llama3.2", "codellama", "mistral", "qwen2.5"])
         
         spider_json_path = st.text_input(
-            "Spider dev.json",
+            "📄 Spider dev.json",
             value="/home/smore123/ADAPT-SQL/data/spider/dev.json"
         )
         
         spider_db_dir = st.text_input(
-            "Spider DB directory",
+            "📁 Spider DB directory",
             value="/home/smore123/ADAPT-SQL/data/spider/spider_data/database"
         )
         
         vector_store_path = st.text_input(
-            "Vector Store",
+            "🔍 Vector Store",
             value="./vector_store"
         )
         
-        k_examples = st.slider("Similar Examples", 1, 20, 10)
+        k_examples = st.slider("📚 Similar Examples", 1, 20, 10)
         
         st.markdown("---")
-        st.markdown("### Batch Settings")
+        st.markdown("### 🎯 Batch Settings")
         
-        num_queries = st.number_input("Number of Queries", min_value=1, max_value=1000, value=50)
+        num_queries = st.number_input("Number of Queries", min_value=1, max_value=1000, value=10, step=5)
         start_idx = st.number_input("Start Index", min_value=0, value=0)
         
         st.markdown("---")
-        st.markdown("### Processing Options")
+        st.markdown("### 🔧 Processing Options")
         
-        enable_validation_retry = st.checkbox("Enable Validation Retry", value=True)
-        enable_execution = st.checkbox("Enable SQL Execution", value=True)
-        enable_evaluation = st.checkbox("Enable Evaluation", value=True)
-        enable_full_retry = st.checkbox("Enable Full Pipeline Retry", value=False)
+        enable_validation_retry = st.checkbox("✅ Enable Validation Retry (Step 8)", value=True)
+        enable_execution = st.checkbox("⚡ Enable SQL Execution (Step 10)", value=True)
+        enable_evaluation = st.checkbox("📊 Enable Evaluation (Step 11)", value=True)
+        enable_full_retry = st.checkbox("🔄 Enable Full Pipeline Retry", value=True)
         
         if enable_full_retry:
-            max_full_retries = st.slider("Max Full Retries", 0, 3, 3)
-            min_eval_score = st.slider("Min Evaluation Score", 0.0, 1.0, 0.5, 0.1)
+            st.markdown("**Retry Settings:**")
+            max_full_retries = st.slider("Max Full Retries", 0, 5, 2)
+            min_eval_score = st.slider("Min Evaluation Score", 0.0, 1.0, 0.8, 0.05)
+            st.caption(f"Will retry if EX=0 or score < {min_eval_score}")
         
         st.markdown("---")
         
-        if st.button("Load Dataset"):
+        if st.button("📥 Load Dataset", use_container_width=True):
             data = load_spider_data(spider_json_path)
             if data:
                 st.session_state.spider_data = data
-                st.success(f"Loaded {len(data)} examples")
+                st.success(f"✅ Loaded {len(data)} examples")
         
         if 'spider_data' in st.session_state and st.session_state.spider_data:
-            st.info(f"{len(st.session_state.spider_data)} examples loaded")
+            st.info(f"📊 {len(st.session_state.spider_data)} examples loaded")
     
     # Main content
     if 'spider_data' not in st.session_state or not st.session_state.spider_data:
-        st.info("Load dataset from sidebar to begin")
-        st.markdown("""
-        ### How to use:
-        1. Configure the paths in the sidebar
-        2. Click "Load Dataset" to load Spider examples
-        3. Set the number of queries to process and starting index
-        4. Enable/disable execution, evaluation, and retry options
-        5. Click "Run Batch Processing" to process multiple queries
-        6. View detailed results for each query
-        7. Export results as CSV or JSON
+        st.info("👈 Load dataset from sidebar to begin")
         
-        ### Processing Options:
-        - **Validation Retry**: Attempts to fix validation errors (Step 8)
-        - **SQL Execution**: Executes generated SQL on database (Step 10)
-        - **Evaluation**: Compares results with ground truth (Step 11)
-        - **Full Pipeline Retry**: Retries entire pipeline if execution fails or score is low
-        """)
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            ### 🚀 How to use:
+            1. Configure paths in sidebar
+            2. Click "Load Dataset"
+            3. Set number of queries and start index
+            4. Enable processing options
+            5. Click "Run Batch Processing"
+            6. View detailed results with full UI
+            7. Export results as CSV or JSON
+            """)
+        
+        with col2:
+            st.markdown("""
+            ### 🎯 Processing Options:
+            - **Validation Retry**: Fix errors (Step 8)
+            - **Execution**: Run SQL on database (Step 10)
+            - **Evaluation**: Compare with ground truth (Step 11)
+            - **Full Retry**: Retry if EX=0 or score low
+            
+            ### 📊 View Features:
+            - Summary cards for all queries
+            - Full detailed view with all tabs
+            - Spider benchmark metrics (EX, EM)
+            - Retry history with improvements
+            """)
+        
         return
     
     # Batch processing section
-    st.markdown("## Batch Processing")
+    st.markdown("## 🎯 Batch Processing Configuration")
     
     end_idx = min(start_idx + num_queries, len(st.session_state.spider_data))
-    st.info(f"Will process queries {start_idx} to {end_idx - 1} ({end_idx - start_idx} queries)")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Start Index", start_idx)
+    with col2:
+        st.metric("End Index", end_idx - 1)
+    with col3:
+        st.metric("Total Queries", end_idx - start_idx)
     
     # Display processing options summary
+    st.markdown("**Enabled Options:**")
     options = []
     if enable_validation_retry:
-        options.append("Validation Retry")
+        options.append("✅ Validation Retry")
     if enable_execution:
-        options.append("Execution")
+        options.append("⚡ Execution")
     if enable_evaluation:
-        options.append("Evaluation")
+        options.append("📊 Evaluation")
     if enable_full_retry:
-        options.append(f"Full Retry (max {max_full_retries})")
+        options.append(f"🔄 Full Retry (max {max_full_retries}, min score {min_eval_score})")
     
     if options:
-        st.caption(f"Enabled: {', '.join(options)}")
+        for opt in options:
+            st.caption(opt)
     
-    if st.button("Run Batch Processing", type="primary", use_container_width=True):
+    st.markdown("---")
+    
+    if st.button("🚀 Run Batch Processing", type="primary", use_container_width=True):
         # Initialize ADAPT
-        adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
+        with st.spinner("Initializing ADAPT-SQL pipeline..."):
+            adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
         
         # Initialize retry engine if needed
         retry_engine = None
@@ -214,24 +242,34 @@ def main():
         progress_bar = st.progress(0)
         status_text = st.empty()
         
+        # Results container
+        results_container = st.container()
+        
         results = []
         
         # Process each query
         for i in range(start_idx, end_idx):
             example = st.session_state.spider_data[i]
             
-            status_text.text(f"Processing query {i - start_idx + 1}/{end_idx - start_idx}: {example['question'][:50]}...")
+            # Update status
+            progress = (i - start_idx + 1) / (end_idx - start_idx)
+            progress_bar.progress(progress)
+            status_text.markdown(f"**Processing {i - start_idx + 1}/{end_idx - start_idx}:** {example['question'][:80]}...")
             
             # Get database path
             db_path = Path(spider_db_dir) / example['db_id'] / f"{example['db_id']}.sqlite"
             
             if not db_path.exists():
-                st.warning(f"Database not found for query {i}: {example['db_id']}")
+                st.warning(f"⚠️ Database not found: {example['db_id']}")
                 continue
             
             # Load schema
-            schema_dict = get_schema_from_sqlite(str(db_path))
-            foreign_keys = get_foreign_keys_from_sqlite(str(db_path))
+            try:
+                schema_dict = get_schema_from_sqlite(str(db_path))
+                foreign_keys = get_foreign_keys_from_sqlite(str(db_path))
+            except Exception as e:
+                st.error(f"❌ Error loading schema for {example['db_id']}: {e}")
+                continue
             
             gold_sql = example.get('query', None)
             
@@ -249,17 +287,13 @@ def main():
                         gold_sql=gold_sql if enable_evaluation else None
                     )
                     result = retry_result['final_result']
-                    result['retry_info'] = {
-                        'total_attempts': retry_result['total_attempts'],
-                        'success': retry_result['success']
-                    }
                     
-                    # Store full retry result for detailed view
+                    # Store full retry result
                     results.append({
                         'index': i,
                         'example': example,
                         'result': result,
-                        'retry_result': retry_result  # Store full retry result
+                        'retry_result': retry_result
                     })
                 else:
                     # Normal pipeline
@@ -281,11 +315,12 @@ def main():
                         'result': result,
                         'retry_result': None
                     })
+                    
             except Exception as e:
-                st.error(f"Error processing query {i}: {e}")
-            
-            # Update progress
-            progress_bar.progress((i - start_idx + 1) / (end_idx - start_idx))
+                st.error(f"❌ Error processing query {i}: {str(e)}")
+                import traceback
+                with st.expander("View Error Details"):
+                    st.code(traceback.format_exc())
         
         progress_bar.empty()
         status_text.empty()
@@ -294,12 +329,13 @@ def main():
         st.session_state.batch_results = results
         st.session_state.batch_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        st.success(f"Batch processing complete! Processed {len(results)} queries.")
+        st.success(f"✅ Batch processing complete! Processed {len(results)} queries.")
     
     # Display results if available
     if 'batch_results' in st.session_state:
         st.markdown("---")
-        st.markdown(f"## Results (Generated at {st.session_state.batch_timestamp})")
+        st.markdown(f"## 📊 Results Summary")
+        st.caption(f"Generated at {st.session_state.batch_timestamp}")
         
         results = st.session_state.batch_results
         
@@ -308,122 +344,230 @@ def main():
         
         st.markdown("---")
         
-        # Complexity distribution
-        display_complexity_distribution(results)
+        # Create tabs for different views
+        summary_tab, details_tab, analysis_tab, export_tab = st.tabs([
+            "📋 Summary View", 
+            "🔍 Detailed View", 
+            "📈 Analysis", 
+            "💾 Export"
+        ])
         
-        st.markdown("---")
-        
-        # Execution summary (if enabled)
-        if any(r['result'].get('step10_generated') for r in results):
-            display_execution_summary(results)
+        with summary_tab:
+            st.markdown("### Distribution Metrics")
+            
+            # Complexity distribution
+            display_complexity_distribution(results)
+            
             st.markdown("---")
-        
-        # Evaluation summary (if enabled)
-        if any(r['result'].get('step11') for r in results):
-            display_evaluation_summary(results)
-            st.markdown("---")
-        
-        # Retry summary (if enabled)
-        if any(r['result'].get('retry_info') for r in results):
-            display_retry_summary(results)
-            st.markdown("---")
-        
-        # Error analysis
-        display_error_analysis(results)
-        
-        st.markdown("---")
-        
-        # Detailed results with filtering
-        st.markdown("### Detailed Query Results")
-        
-        # Filter options
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            filter_complexity = st.multiselect(
-                "Filter by Complexity",
-                ["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"],
-                default=["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"]
-            )
-        
-        with col2:
-            filter_validity = st.selectbox(
-                "Filter by Validity",
-                ["All", "Valid Only", "Invalid Only"],
-                index=0
-            )
-        
-        with col3:
-            filter_execution = st.selectbox(
-                "Filter by Execution",
-                ["All", "Success Only", "Failed Only"],
-                index=0
-            )
-        
-        with col4:
-            filter_evaluation = st.selectbox(
-                "Filter by Evaluation",
-                ["All", "High Score (>=0.7)", "Low Score (<0.5)"],
-                index=0
-            )
-        
-        # Apply filters
-        filtered_results = filter_results(
-            results, 
-            filter_complexity, 
-            filter_validity,
-            filter_execution,
-            filter_evaluation
-        )
-        
-        st.info(f"Showing {len(filtered_results)} of {len(results)} queries")
-        
-        # Display view options
-        view_mode = st.radio(
-            "View Mode",
-            ["Summary Cards", "Detailed Expandable"],
-            horizontal=True
-        )
-        
-        # Display results based on view mode
-        if view_mode == "Summary Cards":
-            for r in filtered_results:
-                display_query_summary_card(r['index'], r['example'], r['result'])
+            
+            # Execution summary (if enabled)
+            if any(r['result'].get('step10_generated') for r in results):
+                display_execution_summary(results)
                 st.markdown("---")
-        else:
+            
+            # Evaluation summary (if enabled)
+            if any(r['result'].get('step11') for r in results):
+                display_evaluation_summary(results)
+                st.markdown("---")
+            
+            # Retry summary (if enabled)
+            if any(r.get('retry_result') for r in results):
+                display_retry_summary(results)
+            
+            st.markdown("---")
+            st.markdown("### Query Summary Cards")
+            st.caption("Quick overview of all processed queries")
+            
+            for r in results:
+                display_query_summary_card(
+                    r['index'], 
+                    r['example'], 
+                    r['result'],
+                    r.get('retry_result')
+                )
+                st.markdown("---")
+        
+        with details_tab:
+            st.markdown("### Detailed Query Results with Full UI")
+            st.caption("Each query shows all tabs: Schema, Complexity, Examples, Route, SQL, Validation, Execution, Evaluation, Retry History")
+            
+            # Filter options
+            st.markdown("#### 🔍 Filter Options")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                filter_complexity = st.multiselect(
+                    "Complexity",
+                    ["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"],
+                    default=["EASY", "NON_NESTED_COMPLEX", "NESTED_COMPLEX"]
+                )
+            
+            with col2:
+                filter_validity = st.selectbox(
+                    "Validity",
+                    ["All", "Valid Only", "Invalid Only"],
+                    index=0
+                )
+            
+            with col3:
+                filter_execution = st.selectbox(
+                    "Execution",
+                    ["All", "Success Only", "Failed Only"],
+                    index=0
+                )
+            
+            with col4:
+                filter_evaluation = st.selectbox(
+                    "Evaluation",
+                    ["All", "EX = 1.0 Only", "EX = 0.0 Only", "High Score (>=0.7)", "Low Score (<0.5)"],
+                    index=0
+                )
+            
+            # Apply filters
+            filtered_results = filter_results(
+                results, 
+                filter_complexity, 
+                filter_validity,
+                filter_execution,
+                filter_evaluation
+            )
+            
+            st.info(f"Showing {len(filtered_results)} of {len(results)} queries")
+            
+            st.markdown("---")
+            
+            # Display detailed results
             for r in filtered_results:
                 display_query_details(
                     r['index'], 
                     r['example'], 
                     r['result'],
-                    r.get('retry_result')  # Pass retry result if available
+                    r.get('retry_result')
                 )
         
-        # Export options
-        st.markdown("---")
-        st.markdown("### Export Results")
+        with analysis_tab:
+            st.markdown("### 📈 Detailed Analysis")
+            
+            # Error analysis
+            display_error_analysis(results)
+            
+            st.markdown("---")
+            
+            # Additional metrics
+            st.markdown("### 📊 Performance Breakdown")
+            
+            if any(r['result'].get('step11') for r in results):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Execution Accuracy (EX) Distribution**")
+                    ex_perfect = sum(1 for r in results if r['result'].get('step11', {}).get('execution_accuracy'))
+                    ex_failed = sum(1 for r in results if r['result'].get('step11') and not r['result']['step11'].get('execution_accuracy'))
+                    
+                    if ex_perfect + ex_failed > 0:
+                        ex_pct = (ex_perfect / (ex_perfect + ex_failed) * 100)
+                        st.metric("EX = 1.0 Rate", f"{ex_pct:.1f}%", f"{ex_perfect}/{ex_perfect + ex_failed}")
+                        st.progress(ex_pct / 100)
+                    
+                with col2:
+                    st.markdown("**Exact-Set-Match (EM) Distribution**")
+                    em_perfect = sum(1 for r in results if r['result'].get('step11', {}).get('exact_set_match'))
+                    em_failed = sum(1 for r in results if r['result'].get('step11') and not r['result']['step11'].get('exact_set_match'))
+                    
+                    if em_perfect + em_failed > 0:
+                        em_pct = (em_perfect / (em_perfect + em_failed) * 100)
+                        st.metric("EM = 1.0 Rate", f"{em_pct:.1f}%", f"{em_perfect}/{em_perfect + em_failed}")
+                        st.progress(em_pct / 100)
+            
+            st.markdown("---")
+            
+            # Score distribution
+            if any(r['result'].get('step11') for r in results):
+                st.markdown("### 📉 Score Distribution")
+                
+                scores = [r['result']['step11']['evaluation_score'] for r in results if r['result'].get('step11')]
+                
+                if scores:
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        perfect = sum(1 for s in scores if s >= 0.9)
+                        st.metric("Perfect (≥0.9)", perfect, f"{perfect/len(scores)*100:.1f}%")
+                    
+                    with col2:
+                        good = sum(1 for s in scores if 0.7 <= s < 0.9)
+                        st.metric("Good (0.7-0.9)", good, f"{good/len(scores)*100:.1f}%")
+                    
+                    with col3:
+                        fair = sum(1 for s in scores if 0.5 <= s < 0.7)
+                        st.metric("Fair (0.5-0.7)", fair, f"{fair/len(scores)*100:.1f}%")
+                    
+                    with col4:
+                        poor = sum(1 for s in scores if s < 0.5)
+                        st.metric("Poor (<0.5)", poor, f"{poor/len(scores)*100:.1f}%")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("Export Summary CSV"):
-                csv = export_summary_csv(results)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name=f"adapt_sql_batch_{st.session_state.batch_timestamp.replace(' ', '_').replace(':', '-')}.csv",
-                    mime="text/csv"
-                )
-        
-        with col2:
-            if st.button("Export Full JSON"):
-                json_str = export_full_json(results)
-                st.download_button(
-                    label="Download JSON",
-                    data=json_str,
-                    file_name=f"adapt_sql_batch_{st.session_state.batch_timestamp.replace(' ', '_').replace(':', '-')}.json",
-                    mime="application/json"
-                )
+        with export_tab:
+            st.markdown("### 💾 Export Results")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📄 CSV Export")
+                st.caption("Summary data suitable for spreadsheets and analysis")
+                
+                if st.button("📥 Generate CSV", use_container_width=True):
+                    csv = export_summary_csv(results)
+                    st.download_button(
+                        label="⬇️ Download CSV",
+                        data=csv,
+                        file_name=f"adapt_sql_batch_{st.session_state.batch_timestamp.replace(' ', '_').replace(':', '-')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            
+            with col2:
+                st.markdown("#### 📋 JSON Export")
+                st.caption("Complete data including all steps and reasoning")
+                
+                if st.button("📥 Generate JSON", use_container_width=True):
+                    json_str = export_full_json(results)
+                    st.download_button(
+                        label="⬇️ Download JSON",
+                        data=json_str,
+                        file_name=f"adapt_sql_batch_{st.session_state.batch_timestamp.replace(' ', '_').replace(':', '-')}.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+            
+            st.markdown("---")
+            
+            st.markdown("#### 📊 Export Contents")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**CSV includes:**")
+                st.markdown("""
+                - Question and database
+                - Complexity and strategy
+                - Generated and ground truth SQL
+                - Validation scores and errors
+                - Execution success and time
+                - Evaluation scores (EX, EM)
+                - Retry attempts and success
+                """)
+            
+            with col2:
+                st.markdown("**JSON includes:**")
+                st.markdown("""
+                - All CSV data PLUS:
+                - Complete reasoning for each step
+                - Schema linking details
+                - Similar examples used
+                - Full validation feedback
+                - Retry history with improvements
+                - All intermediate representations
+                """)
 
 
 if __name__ == "__main__":

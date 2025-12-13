@@ -5,6 +5,7 @@ Validates generated SQL for syntax, schema compliance, and logical correctness
 import re
 import sqlparse
 from typing import Dict, List, Set, Tuple
+from fuzzy_schema_validator import FuzzySchemaValidator
 
 
 class SQLValidator:
@@ -17,6 +18,10 @@ class SQLValidator:
             'AVG', 'MAX', 'MIN', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'LIKE',
             'BETWEEN', 'IS', 'NULL', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END'
         }
+        self.fuzzy_validator = FuzzySchemaValidator(
+            fuzzy_threshold=0.7,
+            substring_threshold=0.8
+        )
     
     def validate_sql_enhanced(
         self,
@@ -210,23 +215,45 @@ class SQLValidator:
         return errors
     
     def _verify_tables(self, sql: str, pruned_schema: Dict) -> List[Dict]:
-        """Verify that all referenced tables exist in schema"""
+        """Verify tables with fuzzy matching and suggestions"""
         errors = []
+        warnings = []
         
         # Extract table names from SQL
         referenced_tables = self._extract_table_names(sql)
         
         # Check each table
         for table in referenced_tables:
-            if table not in pruned_schema:
-                errors.append({
+            # USE FUZZY VALIDATOR:
+            validation_result = self.fuzzy_validator.validate_table_with_suggestions(
+                table, pruned_schema
+            )
+            
+            if not validation_result['is_valid']:
+                error_dict = {
                     'type': 'SCHEMA_ERROR',
-                    'message': f'Table "{table}" does not exist in schema',
-                    'severity': 'CRITICAL',
                     'table': table
-                })
+                }
+                
+                # High-confidence match → WARNING
+                if validation_result['severity'] == 'WARNING':
+                    error_dict['severity'] = 'MEDIUM'
+                    error_dict['message'] = validation_result['message']
+                    if validation_result['suggestion']:
+                        error_dict['suggestion'] = validation_result['suggestion']
+                        error_dict['confidence'] = validation_result['confidence']
+                    warnings.append(error_dict)
+                
+                # No good match → ERROR
+                else:
+                    error_dict['severity'] = 'CRITICAL'  # Tables are critical
+                    error_dict['message'] = validation_result['message']
+                    if validation_result['suggestion']:
+                        error_dict['message'] += f" ({validation_result['suggestion']})"
+                    errors.append(error_dict)
         
-        return errors
+        return errors + warnings
+
     
     def _extract_table_names(self, sql: str) -> Set[str]:
         """Extract table names from SQL query"""
@@ -245,8 +272,9 @@ class SQLValidator:
         return tables
     
     def _verify_columns(self, sql: str, pruned_schema: Dict) -> List[Dict]:
-        """Verify that all referenced columns exist in their tables"""
+        """Verify columns with fuzzy matching and suggestions"""
         errors = []
+        warnings = []  # NEW: separate warnings from errors
         
         # Extract column references
         column_refs = self._extract_column_references(sql)
@@ -254,7 +282,7 @@ class SQLValidator:
         # Build a map of all columns by table
         schema_columns = {}
         for table, columns in pruned_schema.items():
-            schema_columns[table] = {col['column_name'].lower() for col in columns}
+            schema_columns[table] = {col['column_name'] for col in columns}
         
         # Check each column reference
         for table, column in column_refs:
@@ -263,31 +291,87 @@ class SQLValidator:
                 if table not in schema_columns:
                     continue  # Table error already caught
                 
-                if column.lower() not in schema_columns[table]:
-                    errors.append({
+                # USE FUZZY VALIDATOR:
+                validation_result = self.fuzzy_validator.validate_column_with_suggestions(
+                    column, table, pruned_schema
+                )
+                
+                if not validation_result['is_valid']:
+                    error_dict = {
                         'type': 'SCHEMA_ERROR',
-                        'message': f'Column "{column}" does not exist in table "{table}"',
-                        'severity': 'HIGH',
                         'table': table,
                         'column': column
-                    })
+                    }
+                    
+                    # High-confidence match → WARNING (not ERROR)
+                    if validation_result['severity'] == 'WARNING':
+                        error_dict['severity'] = 'MEDIUM'  # Downgrade from HIGH
+                        error_dict['message'] = validation_result['message']
+                        if validation_result['suggestion']:
+                            error_dict['suggestion'] = validation_result['suggestion']
+                            error_dict['confidence'] = validation_result['confidence']
+                        warnings.append(error_dict)
+                    
+                    # No good match → ERROR
+                    else:
+                        error_dict['severity'] = 'HIGH'
+                        error_dict['message'] = validation_result['message']
+                        if validation_result['suggestion']:
+                            error_dict['message'] += f" ({validation_result['suggestion']})"
+                        errors.append(error_dict)
+                        
             else:
                 # Unqualified column - check if it exists in any table
                 found = False
+                best_match = None
+                best_score = 0.0
+                
                 for table_name, cols in schema_columns.items():
-                    if column.lower() in cols:
+                    # Try exact match first
+                    if column.lower() in {c.lower() for c in cols}:
                         found = True
                         break
+                    
+                    # Try fuzzy match
+                    match_result = self.fuzzy_validator.find_best_match(
+                        column, cols
+                    )
+                    if match_result:
+                        match_col, score = match_result
+                        if score > best_score:
+                            best_score = score
+                            best_match = (table_name, match_col)
                 
                 if not found and column != '*':
-                    errors.append({
+                    error_dict = {
                         'type': 'SCHEMA_ERROR',
-                        'message': f'Column "{column}" does not exist in any table',
-                        'severity': 'MEDIUM',
                         'column': column
-                    })
+                    }
+                    
+                    # High-confidence fuzzy match → WARNING
+                    if best_match and best_score >= 0.85:
+                        table_name, match_col = best_match
+                        error_dict['severity'] = 'MEDIUM'
+                        error_dict['message'] = (
+                            f'Column "{column}" not found. '
+                            f'Did you mean "{table_name}.{match_col}"? '
+                            f'(confidence: {best_score:.0%})'
+                        )
+                        warnings.append(error_dict)
+                    
+                    # Low confidence → ERROR with suggestions
+                    else:
+                        error_dict['severity'] = 'MEDIUM'  # Downgrade since unqualified
+                        error_dict['message'] = f'Column "{column}" does not exist in any table'
+                        
+                        if best_match:
+                            table_name, match_col = best_match
+                            error_dict['message'] += f' (similar: {table_name}.{match_col})'
+                        
+                        errors.append(error_dict)
         
-        return errors
+        # Combine errors and warnings
+        return errors + warnings
     
     def _extract_column_references(self, sql: str) -> List[Tuple[str, str]]:
         """Extract column references as (table, column) tuples"""

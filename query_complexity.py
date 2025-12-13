@@ -1,10 +1,11 @@
 """
-Query Complexity Classifier - STEP 2
+Query Complexity Classifier - STEP 2 (ENHANCED with Rule-Based Classification)
 Classifies query complexity based on schema linking results
+Now uses deterministic rules BEFORE LLM for better accuracy and speed
 """
 import ollama
 import re
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 from enum import Enum
 
 
@@ -15,9 +16,201 @@ class ComplexityClass(Enum):
     NESTED_COMPLEX = "NESTED_COMPLEX"
 
 
+class RuleBasedComplexityClassifier:
+    """Deterministic rule-based classifier for fast, accurate classification"""
+    
+    def __init__(self):
+        """Initialize rule-based classifier"""
+        
+        # Nested query indicators (strong signals)
+        self.nested_indicators = [
+            # Comparison with aggregates
+            r'more\s+than\s+(average|avg)',
+            r'less\s+than\s+(average|avg)',
+            r'greater\s+than\s+(average|avg)',
+            r'higher\s+than\s+(average|avg)',
+            r'lower\s+than\s+(average|avg)',
+            r'above\s+(average|avg)',
+            r'below\s+(average|avg)',
+            
+            # Exclusion patterns
+            r'\bexcept\b',
+            r'\bnot\s+in\b',
+            r'\bno(?:t)?\s+\w+\s+that\b',
+            
+            # Existence patterns
+            r'\bthat\s+(?:have|has|had)\b',
+            r'\bwho\s+(?:have|has|had)\b',
+            r'\bwhich\s+(?:have|has|had)\b',
+            
+            # Superlatives with filters
+            r'most\s+\w+\s+(?:that|who|which)',
+            r'least\s+\w+\s+(?:that|who|which)',
+            
+            # Nested logic
+            r'\b(?:every|all|any)\s+\w+\s+(?:that|who|which)\b',
+        ]
+        
+        # Complex query indicators (no nesting)
+        self.complex_indicators = [
+            # Multiple aggregations
+            r'(count|sum|avg|max|min).*(?:and|,).*(count|sum|avg|max|min)',
+            
+            # Aggregation with grouping
+            r'(?:each|every|per)\s+\w+',
+            r'(?:for|by)\s+each',
+            
+            # Multiple conditions
+            r'(?:and|or).*(?:and|or)',
+            
+            # Join keywords
+            r'\b(?:with|from|in)\s+\w+\s+(?:and|with|from)\s+\w+\b',
+        ]
+        
+        # Simple query indicators
+        self.simple_indicators = [
+            r'^(?:show|list|display|get|find|what)\s+(?:all|the)?\s+\w+\s*$',
+            r'^(?:how many|count|total)\s+\w+\s*$',
+        ]
+    
+    def apply_rules(
+        self, 
+        question: str,
+        num_tables: int,
+        has_aggregation: bool,
+        aggregation_types: List[str]
+    ) -> Dict:
+        """
+        Apply deterministic rules for classification
+        
+        Returns:
+            {
+                'classification': ComplexityClass or None,
+                'confidence': float,
+                'reasoning': str,
+                'rule_matched': str or None
+            }
+        """
+        question_lower = question.lower()
+        
+        # ================================================================
+        # RULE 1: NESTED_COMPLEX Detection
+        # ================================================================
+        for i, pattern in enumerate(self.nested_indicators, 1):
+            if re.search(pattern, question_lower, re.IGNORECASE):
+                return {
+                    'classification': ComplexityClass.NESTED_COMPLEX,
+                    'confidence': 0.95,
+                    'reasoning': f'Detected nested query pattern: "{pattern}"',
+                    'rule_matched': f'NESTED_RULE_{i}'
+                }
+        
+        # Additional nested checks
+        if 'more than average' in question_lower or 'less than average' in question_lower:
+            return {
+                'classification': ComplexityClass.NESTED_COMPLEX,
+                'confidence': 0.98,
+                'reasoning': 'Comparison with aggregate (requires subquery)',
+                'rule_matched': 'NESTED_RULE_AGGREGATE_COMPARISON'
+            }
+        
+        # ================================================================
+        # RULE 2: NON_NESTED_COMPLEX Detection  
+        # ================================================================
+        
+        # Multiple tables + aggregation → complex
+        if num_tables >= 2 and has_aggregation:
+            return {
+                'classification': ComplexityClass.NON_NESTED_COMPLEX,
+                'confidence': 0.85,
+                'reasoning': f'{num_tables} tables + aggregation ({", ".join(aggregation_types)})',
+                'rule_matched': 'COMPLEX_RULE_MULTI_TABLE_AGG'
+            }
+        
+        # Multiple aggregations → complex
+        if len(aggregation_types) >= 2:
+            return {
+                'classification': ComplexityClass.NON_NESTED_COMPLEX,
+                'confidence': 0.90,
+                'reasoning': f'Multiple aggregations: {", ".join(aggregation_types)}',
+                'rule_matched': 'COMPLEX_RULE_MULTI_AGG'
+            }
+        
+        # Check complex patterns
+        for i, pattern in enumerate(self.complex_indicators, 1):
+            if re.search(pattern, question_lower, re.IGNORECASE):
+                return {
+                    'classification': ComplexityClass.NON_NESTED_COMPLEX,
+                    'confidence': 0.80,
+                    'reasoning': f'Complex pattern detected: "{pattern}"',
+                    'rule_matched': f'COMPLEX_RULE_{i}'
+                }
+        
+        # 3+ tables → complex
+        if num_tables >= 3:
+            return {
+                'classification': ComplexityClass.NON_NESTED_COMPLEX,
+                'confidence': 0.85,
+                'reasoning': f'{num_tables} tables require multiple JOINs',
+                'rule_matched': 'COMPLEX_RULE_MANY_TABLES'
+            }
+        
+        # ================================================================
+        # RULE 3: EASY Detection
+        # ================================================================
+        
+        # Single table, no aggregation → easy
+        if num_tables == 1 and not has_aggregation:
+            return {
+                'classification': ComplexityClass.EASY,
+                'confidence': 0.95,
+                'reasoning': 'Single table, no aggregation',
+                'rule_matched': 'EASY_RULE_SINGLE_TABLE'
+            }
+        
+        # Single table with simple aggregation → easy
+        if num_tables == 1 and len(aggregation_types) == 1:
+            return {
+                'classification': ComplexityClass.EASY,
+                'confidence': 0.85,
+                'reasoning': f'Single table with {aggregation_types[0]}',
+                'rule_matched': 'EASY_RULE_SIMPLE_AGG'
+            }
+        
+        # Two tables, no aggregation → easy (simple JOIN)
+        if num_tables == 2 and not has_aggregation:
+            return {
+                'classification': ComplexityClass.EASY,
+                'confidence': 0.80,
+                'reasoning': '2 tables, simple JOIN',
+                'rule_matched': 'EASY_RULE_SIMPLE_JOIN'
+            }
+        
+        # Check simple patterns
+        for i, pattern in enumerate(self.simple_indicators, 1):
+            if re.search(pattern, question_lower, re.IGNORECASE):
+                return {
+                    'classification': ComplexityClass.EASY,
+                    'confidence': 0.90,
+                    'reasoning': f'Simple query pattern: "{pattern}"',
+                    'rule_matched': f'EASY_RULE_{i}'
+                }
+        
+        # ================================================================
+        # NO CLEAR RULE MATCH - Let LLM decide
+        # ================================================================
+        return {
+            'classification': None,
+            'confidence': 0.0,
+            'reasoning': 'No definitive rule match - requires LLM analysis',
+            'rule_matched': None
+        }
+
+
 class QueryComplexityClassifier:
     def __init__(self, model: str = "llama3.2"):
         self.model = model
+        self.rule_classifier = RuleBasedComplexityClassifier()
     
     def classify_query(
         self,
@@ -26,7 +219,13 @@ class QueryComplexityClassifier:
         schema_links: Dict
     ) -> Dict:
         """
-        STEP 2: Query Complexity Classification
+        STEP 2: Query Complexity Classification with Rule-Based Pre-filtering
+        
+        Flow:
+        1. Extract structural hints
+        2. Apply rule-based classification (FAST)
+        3. If confident → return immediately
+        4. If uncertain → fallback to LLM
         
         Args:
             question: Natural language question
@@ -43,11 +242,13 @@ class QueryComplexityClassifier:
                 'needs_subqueries': bool,
                 'aggregations': List[str],
                 'has_grouping': bool,
-                'has_ordering': bool
+                'classification_method': str,  # 'RULE_BASED' or 'LLM'
+                'rule_matched': str or None,
+                'rule_confidence': float
             }
         """
         print(f"\n{'='*60}")
-        print("STEP 2: QUERY COMPLEXITY CLASSIFICATION")
+        print("STEP 2: QUERY COMPLEXITY CLASSIFICATION (RULE-BASED + LLM)")
         print(f"{'='*60}\n")
         
         # Extract structural hints
@@ -55,31 +256,91 @@ class QueryComplexityClassifier:
         structural_hints = self._extract_structural_hints(question)
         print(f"   Aggregations: {', '.join(structural_hints['aggregation_types']) if structural_hints['aggregation_types'] else 'None'}")
         
-        # Use LLM to classify
-        print("2.2: Running LLM classification...")
-        llm_classification = self._classify_with_llm(
-            question, pruned_schema, schema_links, structural_hints
+        # Count tables
+        num_tables = len(schema_links['tables'])
+        has_aggregation = structural_hints['has_aggregation']
+        aggregation_types = structural_hints['aggregation_types']
+        
+        # Apply rule-based classification first
+        print("2.2: Applying rule-based classification...")
+        
+        rule_result = self.rule_classifier.apply_rules(
+            question=question,
+            num_tables=num_tables,
+            has_aggregation=has_aggregation,
+            aggregation_types=aggregation_types
         )
         
-        # Parse classification
-        print("2.3: Parsing classification...")
-        classification = self._parse_classification(llm_classification, schema_links)
-        print(f"   Complexity: {classification['complexity_class'].value}")
+        classification = None
+        classification_method = None
+        rule_matched = None
+        llm_classification = None
+        
+        # If rules give high-confidence answer, use it
+        if rule_result['classification'] and rule_result['confidence'] >= 0.80:
+            classification = rule_result['classification']
+            classification_method = 'RULE_BASED'
+            rule_matched = rule_result['rule_matched']
+            
+            print(f"   ✅ Rule-based: {classification.value}")
+            print(f"   Confidence: {rule_result['confidence']:.2f}")
+            print(f"   Rule: {rule_matched}")
+            print(f"   Reasoning: {rule_result['reasoning']}")
+            
+            # Parse into standard format
+            parsed_classification = {
+                'complexity_class': classification,
+                'needs_joins': num_tables > 1,
+                'needs_subqueries': classification == ComplexityClass.NESTED_COMPLEX,
+                'needs_set_operations': False,
+                'aggregations': aggregation_types,
+                'has_grouping': 'each' in question.lower() or 'per' in question.lower(),
+                'has_ordering': 'order' in question.lower() or 'sort' in question.lower()
+            }
+            
+        else:
+            # Fallback to LLM for uncertain cases
+            print("   ⚠️ No confident rule match - using LLM...")
+            
+            llm_classification = self._classify_with_llm(
+                question, pruned_schema, schema_links, structural_hints
+            )
+            
+            parsed_classification = self._parse_classification(
+                llm_classification, schema_links
+            )
+            
+            classification = parsed_classification['complexity_class']
+            classification_method = 'LLM'
+            rule_matched = None
+            
+            print(f"   ✅ LLM classification: {classification.value}")
         
         # Determine required tables
         required_tables = schema_links['tables']
         
         # Identify sub-questions if nested
         sub_questions = []
-        if classification['complexity_class'] == ComplexityClass.NESTED_COMPLEX:
+        if classification == ComplexityClass.NESTED_COMPLEX:
             print("2.4: Identifying sub-questions...")
-            sub_questions = self._identify_sub_questions(question, llm_classification)
+            if llm_classification:
+                sub_questions = self._identify_sub_questions(question, llm_classification)
+            else:
+                # Use heuristic if no LLM was called
+                sub_questions = self._heuristic_sub_questions(question)
             print(f"   Found {len(sub_questions)} sub-questions")
         
         # Generate reasoning
-        reasoning = self._generate_reasoning(
-            question, classification, structural_hints, 
-            required_tables, sub_questions, llm_classification
+        reasoning = self._generate_reasoning_enhanced(
+            question=question,
+            classification=parsed_classification,
+            structural_hints=structural_hints,
+            required_tables=required_tables,
+            sub_questions=sub_questions,
+            classification_method=classification_method,
+            rule_matched=rule_matched,
+            rule_reasoning=rule_result.get('reasoning'),
+            llm_classification=llm_classification
         )
         
         print(f"\n{'='*60}")
@@ -87,17 +348,21 @@ class QueryComplexityClassifier:
         print(f"{'='*60}\n")
         
         return {
-            'complexity_class': classification['complexity_class'],
+            'complexity_class': classification,
             'required_tables': required_tables,
             'sub_questions': sub_questions,
             'reasoning': reasoning,
-            'needs_joins': classification['needs_joins'],
-            'needs_subqueries': classification['needs_subqueries'],
-            'needs_set_operations': classification['needs_set_operations'],
-            'aggregations': classification['aggregations'],
-            'has_grouping': classification['has_grouping'],
-            'has_ordering': classification['has_ordering'],
-            'structural_hints': structural_hints
+            'needs_joins': parsed_classification['needs_joins'],
+            'needs_subqueries': parsed_classification['needs_subqueries'],
+            'needs_set_operations': parsed_classification['needs_set_operations'],
+            'aggregations': parsed_classification['aggregations'],
+            'has_grouping': parsed_classification['has_grouping'],
+            'has_ordering': parsed_classification['has_ordering'],
+            'structural_hints': structural_hints,
+            # NEW FIELDS:
+            'classification_method': classification_method,
+            'rule_matched': rule_matched,
+            'rule_confidence': rule_result.get('confidence', 0.0)
         }
     
     def _extract_structural_hints(self, question: str) -> Dict:
@@ -279,7 +544,7 @@ Provide concise analysis:"""
         question: str,
         llm_classification: str
     ) -> List[str]:
-        """Identify sub-questions for nested queries"""
+        """Identify sub-questions for nested queries from LLM output"""
         sub_questions = []
         
         # Look for sub-question patterns
@@ -301,30 +566,73 @@ Provide concise analysis:"""
         
         # Heuristic: look for clauses
         if not sub_questions:
-            clauses = re.split(r'\s+(?:that|which|who|where)\s+', question, flags=re.IGNORECASE)
-            if len(clauses) > 1:
-                for clause in clauses[1:]:
-                    if len(clause) > 10:
-                        sub_questions.append(clause.strip())
+            sub_questions = self._heuristic_sub_questions(question)
         
         return sub_questions[:3]  # Limit to 3
     
-    def _generate_reasoning(
+    def _heuristic_sub_questions(self, question: str) -> List[str]:
+        """
+        Generate sub-questions heuristically without LLM
+        Used when rules confidently classify as NESTED_COMPLEX
+        """
+        sub_questions = []
+        
+        # Pattern 1: "X that have Y" → ["What are the Y?", "Which X have those Y?"]
+        match = re.search(r'(\w+)\s+that\s+have\s+(.*?)(?:\?|$)', question, re.IGNORECASE)
+        if match:
+            entity = match.group(1)
+            condition = match.group(2)
+            sub_questions.append(f"What are the {condition}?")
+            sub_questions.append(f"Which {entity} have those?")
+            return sub_questions
+        
+        # Pattern 2: "more than average X" → ["What is the average X?", "Which are more than that?"]
+        match = re.search(r'more\s+than\s+(?:the\s+)?average\s+(\w+)', question, re.IGNORECASE)
+        if match:
+            metric = match.group(1)
+            sub_questions.append(f"What is the average {metric}?")
+            sub_questions.append(f"Which entries have {metric} more than the average?")
+            return sub_questions
+        
+        # Pattern 3: "except X" → ["What are all items?", "What are X?", "Remove X from all"]
+        if 'except' in question.lower():
+            sub_questions.append("Identify all items")
+            sub_questions.append("Identify items to exclude")
+            sub_questions.append("Return items not in exclusion set")
+            return sub_questions
+        
+        # Generic fallback
+        sub_questions.append("Inner query: " + question.split(' that ')[0] if ' that ' in question else question)
+        sub_questions.append("Outer query: Apply condition from inner result")
+        
+        return sub_questions
+    
+    def _generate_reasoning_enhanced(
         self,
         question: str,
         classification: Dict,
         structural_hints: Dict,
         required_tables: Set[str],
         sub_questions: List[str],
-        llm_classification: str
+        classification_method: str,
+        rule_matched: Optional[str],
+        rule_reasoning: Optional[str],
+        llm_classification: Optional[str]
     ) -> str:
-        """Generate reasoning"""
+        """Generate enhanced reasoning with rule info"""
         reasoning = "STEP 2: COMPLEXITY CLASSIFICATION\n"
         reasoning += "=" * 50 + "\n\n"
         
         reasoning += f"Question: {question}\n\n"
         
-        reasoning += f"Classification: {classification['complexity_class'].value}\n\n"
+        reasoning += f"Classification: {classification['complexity_class'].value}\n"
+        reasoning += f"Method: {classification_method}\n"
+        
+        if rule_matched:
+            reasoning += f"Rule Matched: {rule_matched}\n"
+            reasoning += f"Rule Reasoning: {rule_reasoning}\n"
+        
+        reasoning += "\n"
         
         reasoning += "Analysis:\n"
         reasoning += f"  • Tables: {len(required_tables)} ({', '.join(sorted(required_tables))})\n"
@@ -342,9 +650,10 @@ Provide concise analysis:"""
             for i, sq in enumerate(sub_questions, 1):
                 reasoning += f"  {i}. {sq}\n"
         
-        reasoning += "\n" + "-" * 50 + "\n"
-        reasoning += "LLM Analysis:\n"
-        reasoning += llm_classification + "\n"
+        if llm_classification:
+            reasoning += "\n" + "-" * 50 + "\n"
+            reasoning += "LLM Analysis:\n"
+            reasoning += llm_classification + "\n"
         
         return reasoning
     

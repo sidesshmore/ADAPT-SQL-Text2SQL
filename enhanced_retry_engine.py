@@ -14,7 +14,7 @@ from adapt_baseline import ADAPTBaseline
 class EnhancedRetryEngine:
     def __init__(
         self, 
-        model: str = "llama3.2",
+        model: str = "qwen3-coder",
         max_full_retries: int = 2,
         min_evaluation_score: float = 0.80  # Primary: needs high EX
     ):

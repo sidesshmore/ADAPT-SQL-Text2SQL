@@ -8,7 +8,7 @@ from typing import Dict, List, Set
 
 
 class IntermediateRepresentationGenerator:
-    def __init__(self, model: str = "llama3.2"):
+    def __init__(self, model: str = "qwen3-coder"):
         """Initialize intermediate representation generator"""
         self.model = model
     

@@ -8,7 +8,7 @@ from typing import Dict, List
 
 
 class FewShotGenerator:
-    def __init__(self, model: str = "llama3.2"):
+    def __init__(self, model: str = "qwen3-coder"):
         """Initialize few-shot generator"""
         self.model = model
     

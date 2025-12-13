@@ -14,7 +14,7 @@ from collections import defaultdict
 
 
 class EnhancedSchemaLinker:
-    def __init__(self, model: str = "llama3.2"):
+    def __init__(self, model: str = "qwen3-coder"):
         self.model = model
         # Thresholds for fuzzy matching
         self.table_match_threshold = 0.6

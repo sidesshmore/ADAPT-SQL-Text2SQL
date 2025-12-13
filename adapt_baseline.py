@@ -24,7 +24,7 @@ from structural_similarity import enhance_example_selection
 class ADAPTBaseline:
     def __init__(
         self, 
-        model: str = "llama3.2",
+        model: str = "qwen3-coder",
         vector_store_path: str = None,
         max_retries: int = 2,
         execution_timeout: int = 30,

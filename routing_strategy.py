@@ -14,7 +14,7 @@ class GenerationStrategy(Enum):
 
 
 class RoutingStrategy:
-    def __init__(self, model: str = "llama3.2"):
+    def __init__(self, model: str = "qwen3-coder"):
         """Initialize routing strategy"""
         self.model = model
     

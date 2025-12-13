@@ -8,7 +8,7 @@ from typing import Dict, List
 
 
 class PreliminaryPredictor:
-    def __init__(self, model: str = "llama3.2"):
+    def __init__(self, model: str = "qwen3-coder"):
         self.model = model
     
     def predict_sql_skeleton(

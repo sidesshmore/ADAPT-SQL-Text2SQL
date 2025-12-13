@@ -5,7 +5,7 @@ Regenerates SQL based on validation errors and suggestions
 Usage:
     from validation_feedback_retry import ValidationFeedbackRetry
     
-    retry_engine = ValidationFeedbackRetry(model="llama3.2", max_retries=2)
+    retry_engine = ValidationFeedbackRetry(model="qwen3-coder", max_retries=2)
     result = retry_engine.retry_with_feedback(...)
 """
 import ollama
@@ -14,7 +14,7 @@ from typing import Dict, List
 
 
 class ValidationFeedbackRetry:
-    def __init__(self, model: str = "llama3.2", max_retries: int = 2):
+    def __init__(self, model: str = "qwen3-coder", max_retries: int = 2):
         """
         Initialize validation feedback retry system
         

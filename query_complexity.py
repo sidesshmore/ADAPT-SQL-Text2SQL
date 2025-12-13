@@ -208,7 +208,7 @@ class RuleBasedComplexityClassifier:
 
 
 class QueryComplexityClassifier:
-    def __init__(self, model: str = "llama3.2"):
+    def __init__(self, model: str = "qwen3-coder"):
         self.model = model
         self.rule_classifier = RuleBasedComplexityClassifier()
     

@@ -131,12 +131,26 @@ class DecomposedGenerator:
         examples: List[Dict], 
         n: int = 5
     ) -> List[Dict]:
-        """Select top N examples by similarity score"""
-        sorted_examples = sorted(
-            examples,
-            key=lambda x: x.get('similarity_score', 0),
-            reverse=True
-        )
+        """Select top N examples by similarity score (combined if available)"""
+        
+        # Check if structural reranking was applied
+        has_combined_score = any('combined_score' in ex for ex in examples)
+        
+        # Sort by combined score if available, else semantic score
+        if has_combined_score:
+            sorted_examples = sorted(
+                examples,
+                key=lambda x: x.get('combined_score', 0),
+                reverse=True
+            )
+        else:
+            sorted_examples = sorted(
+                examples,
+                key=lambda x: x.get('similarity_score', 0),
+                reverse=True
+            )
+        
+        # Take top N
         return sorted_examples[:n]
     
     def _generate_sub_sqls(

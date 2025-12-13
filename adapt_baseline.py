@@ -17,6 +17,8 @@ from validate_sql import SQLValidator
 from validation_feedback_retry import ValidationFeedbackRetry
 from execute_compare import DatabaseManager
 from evaluation import Text2SQLEvaluator
+from sql_normalizer import normalize_sql_post_generation
+from structural_similarity import enhance_example_selection
 
 
 class ADAPTBaseline:
@@ -25,7 +27,9 @@ class ADAPTBaseline:
         model: str = "llama3.2",
         vector_store_path: str = None,
         max_retries: int = 2,
-        execution_timeout: int = 30
+        execution_timeout: int = 30,
+        enable_sql_normalization: bool = True,  
+        enable_structural_reranking: bool = True
     ):
         """
         Initialize ADAPT-SQL with Ollama model and optional vector store
@@ -39,6 +43,8 @@ class ADAPTBaseline:
         self.model = model
         self.max_retries = max_retries
         self.execution_timeout = execution_timeout
+        self.enable_sql_normalization = enable_sql_normalization  
+        self.enable_structural_reranking = enable_structural_reranking  
         
         # Initialize all pipeline components
         self.schema_linker = EnhancedSchemaLinker(model=model)
@@ -107,9 +113,10 @@ class ADAPTBaseline:
     def run_step4_similarity_search(
         self,
         natural_query: str,
-        k: int = 10
+        k: int = 10,
+        preliminary_sql: str = None
     ) -> Dict:
-        """STEP 4: Similarity Search in Vector Database"""
+        """STEP 4: Similarity Search with optional Structural Reranking"""
         if self.example_selector is None:
             return {
                 'similar_examples': [],
@@ -118,10 +125,33 @@ class ADAPTBaseline:
                 'total_found': 0
             }
         
-        return self.example_selector.search_similar_examples(
+        # Get similar examples from vector store
+        result = self.example_selector.search_similar_examples(
             natural_query,
             k=k
         )
+        
+        # Apply structural reranking if enabled and preliminary SQL available
+        if self.enable_structural_reranking and preliminary_sql:
+            print("   Applying structural similarity reranking...")
+            
+            from structural_similarity import enhance_example_selection
+            
+            reranked_examples = enhance_example_selection(
+                examples=result['similar_examples'],
+                preliminary_sql=preliminary_sql,
+                semantic_weight=0.7,
+                structural_weight=0.3
+            )
+            
+            result['similar_examples'] = reranked_examples
+            result['reranking_applied'] = True
+            
+            print(f"   âœ… Reranked {len(reranked_examples)} examples by structure")
+        else:
+            result['reranking_applied'] = False
+        
+        return result
     
     def run_step5_routing(
         self,
@@ -273,7 +303,9 @@ class ADAPTBaseline:
         
         # Step 4: Similarity Search
         step4_result = self.run_step4_similarity_search(
-            natural_query, k=k_examples
+            natural_query,
+            k=k_examples,
+            preliminary_sql=step3_result.get('predicted_sql') if self.enable_structural_reranking else None
         )
         
         return {
@@ -366,6 +398,31 @@ class ADAPTBaseline:
             
         else:
             print(f"\n⚠️ Unknown strategy: {strategy.value}")
+
+        # Step 6.5: SQL Normalization (if enabled)
+        if self.enable_sql_normalization and generated_sql:
+            print("\n" + "="*70)
+            print("STEP 6.5: SQL NORMALIZATION")
+            print("="*70 + "\n")
+            
+            normalization_result = normalize_sql_post_generation(
+                generated_sql=generated_sql,
+                ground_truth_sql=gold_sql,
+                enable_normalization=self.enable_sql_normalization
+            )
+            
+            results['step6_5_normalization'] = normalization_result
+            
+            # Update generated_sql to normalized version
+            if normalization_result['normalized_sql']:
+                print(f"âœ… Normalized SQL: {len(normalization_result['changes_made'])} changes")
+                generated_sql = normalization_result['normalized_sql']
+            
+            print("\n" + "="*70)
+            print("STEP 6.5 COMPLETED")
+            print("="*70 + "\n")
+        else:
+            results['step6_5_normalization'] = None
         
         # Step 7: Validation
         if generated_sql:

@@ -73,11 +73,32 @@ class DualSimilaritySelector:
         reasoning += f"Requested: {k} similar examples\n"
         reasoning += f"Found: {len(similar_examples)} examples\n\n"
         
+        # Check if structural reranking was applied
+        has_structural = any('structural_similarity' in ex for ex in similar_examples)
+        
+        if has_structural:
+            reasoning += "Ranking Method: Combined (Semantic + Structural)\n"
+            reasoning += "  - Semantic Weight: 70%\n"
+            reasoning += "  - Structural Weight: 30%\n\n"
+        else:
+            reasoning += "Ranking Method: Semantic Similarity Only\n\n"
+        
         reasoning += "Similar Examples (Ranked by Similarity):\n"
         reasoning += "-" * 50 + "\n"
         
         for i, example in enumerate(similar_examples, 1):
-            reasoning += f"\n{i}. Similarity Score: {example.get('similarity_score', 0):.4f}\n"
+            reasoning += f"\n{i}. "
+            
+            if has_structural:
+                sem_score = example.get('similarity_score', 0)
+                struct_score = example.get('structural_similarity', 0)
+                combined_score = example.get('combined_score', 0)
+                
+                reasoning += f"Combined: {combined_score:.4f} "
+                reasoning += f"(Sem: {sem_score:.4f}, Struct: {struct_score:.4f})\n"
+            else:
+                reasoning += f"Similarity Score: {example.get('similarity_score', 0):.4f}\n"
+            
             reasoning += f"   Database: {example.get('db_id', 'unknown')}\n"
             reasoning += f"   Question: {example.get('question', 'N/A')}\n"
             

@@ -85,13 +85,24 @@ class FewShotGenerator:
         examples: List[Dict], 
         n: int = 5
     ) -> List[Dict]:
-        """Select top N examples by similarity score"""
-        # Sort by similarity score (descending)
-        sorted_examples = sorted(
-            examples,
-            key=lambda x: x.get('similarity_score', 0),
-            reverse=True
-        )
+        """Select top N examples by similarity score (combined if available)"""
+        
+        # Check if structural reranking was applied
+        has_combined_score = any('combined_score' in ex for ex in examples)
+        
+        # Sort by combined score if available, else semantic score
+        if has_combined_score:
+            sorted_examples = sorted(
+                examples,
+                key=lambda x: x.get('combined_score', 0),
+                reverse=True
+            )
+        else:
+            sorted_examples = sorted(
+                examples,
+                key=lambda x: x.get('similarity_score', 0),
+                reverse=True
+            )
         
         # Take top N
         return sorted_examples[:n]
@@ -279,9 +290,20 @@ class FewShotGenerator:
         reasoning += f"Question: {question}\n\n"
         
         reasoning += f"Examples Used: {len(examples)}\n"
+        has_structural = any('structural_similarity' in ex for ex in examples)
+
         for i, ex in enumerate(examples, 1):
-            score = ex.get('similarity_score', 0)
-            reasoning += f"  {i}. Similarity: {score:.4f} - {ex.get('question', 'N/A')[:50]}...\n"
+            if has_structural:
+                sem_score = ex.get('similarity_score', 0)
+                struct_score = ex.get('structural_similarity', 0)
+                combined_score = ex.get('combined_score', 0)
+
+                reasoning += f"  {i}. Combined: {combined_score:.4f} "
+                reasoning += f"(Sem: {sem_score:.4f}, Struct: {struct_score:.4f})\n"
+                reasoning += f"     Question: {ex.get('question', 'N/A')[:50]}...\n"
+            else:
+                    score = ex.get('similarity_score', 0)
+                    reasoning += f"  {i}. Similarity: {score:.4f} - {ex.get('question', 'N/A')[:50]}...\n"
         
         reasoning += f"\nGenerated SQL:\n"
         reasoning += "-" * 50 + "\n"

@@ -11,6 +11,84 @@ class DecomposedGenerator:
     def __init__(self, model: str = "qwen3-coder"):
         """Initialize decomposed generator"""
         self.model = model
+
+    # NEW: Nested query structure templates (DIN-SQL style)
+        self.nested_templates = {
+            'IN_SELECT': {
+                'pattern': 'SELECT {outer_cols} WHERE {col} IN (SELECT {inner_cols} WHERE {inner_cond})',
+                'description': 'Check if value exists in subquery results',
+                'examples': [
+                    'students IN (SELECT student_id FROM enrollment)',
+                    'singers IN (SELECT singer_id FROM concerts WHERE year > 2000)'
+                ]
+            },
+            'NOT_IN_SELECT': {
+                'pattern': 'SELECT {outer_cols} WHERE {col} NOT IN (SELECT {inner_cols} WHERE {inner_cond})',
+                'description': 'Check if value does NOT exist in subquery results',
+                'examples': [
+                    'students NOT IN (SELECT student_id FROM failed_courses)'
+                ]
+            },
+            'EXISTS_SELECT': {
+                'pattern': 'SELECT {outer_cols} WHERE EXISTS (SELECT * WHERE {inner_cond})',
+                'description': 'Check if subquery returns any results',
+                'examples': [
+                    'EXISTS (SELECT * FROM has_pet WHERE student.id = has_pet.student_id)'
+                ]
+            },
+            'COMPARISON_WITH_AGG': {
+                'pattern': 'SELECT {outer_cols} WHERE {col} {op} (SELECT {agg}({inner_col}) WHERE {inner_cond})',
+                'description': 'Compare with aggregated subquery result',
+                'examples': [
+                    'age > (SELECT AVG(age) FROM students)',
+                    'salary >= (SELECT MAX(salary) FROM employees WHERE dept = "IT")'
+                ]
+            },
+            'EXCEPT': {
+                'pattern': 'SELECT {cols} WHERE {cond1} EXCEPT SELECT {cols} WHERE {cond2}',
+                'description': 'Set difference between two queries',
+                'examples': [
+                    'all students EXCEPT students who failed'
+                ]
+            }
+        }
+
+    # Method to identify nested pattern:
+
+    def _identify_nested_pattern(
+        self,
+        question: str,
+        sub_questions: List[str]
+    ) -> str:
+        """
+        NEW: Identify which nested query pattern to use
+        Returns pattern key from self.nested_templates
+        """
+        question_lower = question.lower()
+        
+        # Pattern 1: "more/less than average" → COMPARISON_WITH_AGG
+        if any(phrase in question_lower for phrase in [
+            'more than average', 'less than average', 
+            'greater than average', 'higher than average',
+            'above average', 'below average'
+        ]):
+            return 'COMPARISON_WITH_AGG'
+        
+        # Pattern 2: "except", "but not", "exclude" → EXCEPT or NOT_IN_SELECT
+        if any(phrase in question_lower for phrase in ['except', 'but not', 'exclude', 'not in']):
+            return 'NOT_IN_SELECT'
+        
+        # Pattern 3: "that have", "who have", "with" → EXISTS or IN_SELECT
+        if any(phrase in question_lower for phrase in ['that have', 'who have', 'that had']):
+            return 'IN_SELECT'
+        
+        # Pattern 4: "does not have", "without" → NOT_IN_SELECT or NOT EXISTS
+        if any(phrase in question_lower for phrase in ['does not have', 'without', 'no']):
+            return 'NOT_IN_SELECT'
+        
+        # Default: IN_SELECT (most common)
+        return 'IN_SELECT'
+
     
     def generate_sql_decomposed(
         self,
@@ -23,29 +101,11 @@ class DecomposedGenerator:
         intermediate_generator=None
     ) -> Dict:
         """
-        STEP 6c: Decomposed Generation with Subquery Handling
-        
-        Args:
-            question: Main natural language question
-            pruned_schema: Pruned schema from Step 1
-            schema_links: Schema links from Step 1
-            sub_questions: Sub-questions identified in Step 2
-            selected_examples: Similar examples from Step 4
-            few_shot_generator: FewShotGenerator instance for recursion
-            intermediate_generator: IntermediateRepresentationGenerator for recursion
-            
-        Returns:
-            {
-                'generated_sql': str,
-                'sub_sql_list': List[Dict],
-                'natsql_intermediate': str,
-                'confidence': float,
-                'reasoning': str,
-                'examples_used': int
-            }
+        ENHANCED: Decomposed Generation with Subquery Handling
+        Now uses structure templates for better EM alignment
         """
         print(f"\n{'='*60}")
-        print("STEP 6c: DECOMPOSED GENERATION")
+        print("STEP 6c: ENHANCED DECOMPOSED GENERATION")
         print(f"{'='*60}\n")
         
         print(f"Main Question: {question}")
@@ -57,8 +117,12 @@ class DecomposedGenerator:
         best_examples = self._select_best_examples(selected_examples, n=5)
         print(f"   Using {len(best_examples)} examples")
         
+        # NEW: Identify nested pattern
+        pattern_key = self._identify_nested_pattern(question, sub_questions)
+        print(f"\n6c.0.5: Identified nested pattern: {pattern_key}")
+        
         # Sub-step 6c.1: Generate Sub-SQLs
-        print("6c.1: Generating sub-SQLs for each sub-question...")
+        print("\n6c.1: Generating sub-SQLs for each sub-question...")
         sub_sql_list = self._generate_sub_sqls(
             sub_questions,
             pruned_schema,
@@ -69,8 +133,8 @@ class DecomposedGenerator:
         )
         print(f"   Generated {len(sub_sql_list)} sub-SQLs")
         
-        # Sub-step 6c.2: Generate NatSQL with Sub-queries
-        print("6c.2: Generating NatSQL with sub-queries...")
+        # Sub-step 6c.2: Generate NatSQL with Sub-queries (using template)
+        print("\n6c.2: Generating NatSQL with sub-queries (template-based)...")
         natsql_intermediate = self._generate_natsql_with_subqueries(
             question,
             sub_questions,
@@ -82,7 +146,7 @@ class DecomposedGenerator:
         print(f"   NatSQL generated: {len(natsql_intermediate)} characters")
         
         # Sub-step 6c.3: Convert to Final SQL
-        print("6c.3: Converting to final SQL...")
+        print("\n6c.3: Converting to final SQL...")
         generated_sql = self._natsql_to_sql(
             natsql_intermediate,
             pruned_schema,
@@ -91,6 +155,13 @@ class DecomposedGenerator:
             best_examples
         )
         print(f"   SQL generated: {len(generated_sql)} characters")
+        
+        # NEW: Validate structure
+        is_valid_structure = self._validate_nested_structure(generated_sql, pattern_key)
+        if not is_valid_structure:
+            print(f"   ⚠️ Warning: Generated SQL may not follow {pattern_key} pattern")
+        else:
+            print(f"   ✓ SQL follows {pattern_key} pattern")
         
         # Calculate confidence
         confidence = self._calculate_confidence(
@@ -108,10 +179,11 @@ class DecomposedGenerator:
             natsql_intermediate,
             generated_sql,
             best_examples,
-            confidence
+            confidence,
+            pattern_key  # NEW
         )
         
-        print(f"Confidence: {confidence:.2f}")
+        print(f"\nConfidence: {confidence:.2f}")
         
         print(f"\n{'='*60}")
         print("STEP 6c COMPLETED ✓")
@@ -121,6 +193,8 @@ class DecomposedGenerator:
             'generated_sql': generated_sql,
             'sub_sql_list': sub_sql_list,
             'natsql_intermediate': natsql_intermediate,
+            'nested_pattern': pattern_key,  # NEW
+            'pattern_valid': is_valid_structure,  # NEW
             'confidence': confidence,
             'reasoning': reasoning,
             'examples_used': len(best_examples)
@@ -276,10 +350,25 @@ Output ONLY the SQL query:"""
         examples: List[Dict]
     ) -> str:
         """
-        Sub-step 6c.2: Generate NatSQL with Sub-queries
-        Creates intermediate representation that combines sub-queries
+        ENHANCED: Generate NatSQL with sub-queries using structure templates
         """
-        prompt = "# NatSQL Generation with Sub-queries\n\n"
+        # NEW: Identify appropriate nested pattern
+        pattern_key = self._identify_nested_pattern(question, sub_questions)
+        template = self.nested_templates[pattern_key]
+        
+        print(f"   Using nested pattern: {pattern_key}")
+        print(f"   Pattern: {template['description']}")
+        
+        prompt = "# NatSQL Generation with Nested Queries\n\n"
+        
+        # Add template guidance
+        prompt += f"## Nested Query Pattern: {pattern_key}\n\n"
+        prompt += f"Description: {template['description']}\n"
+        prompt += f"Pattern: {template['pattern']}\n\n"
+        prompt += "Examples:\n"
+        for ex in template['examples']:
+            prompt += f"  • {ex}\n"
+        prompt += "\n"
         
         # Add schema
         prompt += "## Database Schema\n\n"
@@ -293,10 +382,10 @@ Output ONLY the SQL query:"""
                 prompt += f"- {fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}\n"
             prompt += "\n"
         
-        # Add nested query examples
-        prompt += "## Nested Query Pattern Examples\n\n"
+        # Add nested query examples from training data
+        prompt += "## Nested Query Examples from Ground Truth\n\n"
         nested_examples = [ex for ex in examples if 'SELECT' in ex.get('query', '').upper() 
-                          and ex.get('query', '').upper().count('SELECT') > 1]
+                        and ex.get('query', '').upper().count('SELECT') > 1]
         
         for i, example in enumerate(nested_examples[:2], 1):
             prompt += f"### Example {i}\n"
@@ -310,30 +399,84 @@ Output ONLY the SQL query:"""
             prompt += f"Question: {sub_sql_info['sub_question']}\n"
             prompt += f"SQL:\n```sql\n{sub_sql_info['sql']}\n```\n\n"
         
-        # Add main task
+        # Add main task with pattern guidance
         prompt += "## Your Task\n\n"
         prompt += f"Main Question: {question}\n\n"
-        prompt += "Create an intermediate representation that combines the sub-queries to answer the main question.\n\n"
+        prompt += f"Use the **{pattern_key}** pattern to combine the sub-queries.\n\n"
         
-        prompt += "Specify:\n"
-        prompt += "1. Main SELECT statement\n"
-        prompt += "2. How to integrate sub-queries (IN, NOT IN, EXISTS, comparison with subquery)\n"
-        prompt += "3. WHERE conditions using sub-queries\n"
-        prompt += "4. Any additional JOINs or filters\n\n"
+        if pattern_key == 'COMPARISON_WITH_AGG':
+            prompt += "Create structure:\n"
+            prompt += "1. OUTER QUERY: Select items to check\n"
+            prompt += "2. INNER QUERY: Calculate aggregate (AVG, MAX, MIN, etc.)\n"
+            prompt += "3. COMPARISON: Use >, <, >=, <= to compare outer with inner result\n\n"
         
-        prompt += "Format:\n"
-        prompt += "MAIN QUERY: [what to select from which table]\n"
-        prompt += "SUBQUERY USAGE: [how sub-queries are used - IN/NOT IN/comparison]\n"
-        prompt += "WHERE: [conditions including subquery references]\n"
-        prompt += "Additional logic if needed\n\n"
+        elif pattern_key == 'IN_SELECT':
+            prompt += "Create structure:\n"
+            prompt += "1. OUTER QUERY: Select items to return\n"
+            prompt += "2. INNER QUERY: Get IDs/values that match condition\n"
+            prompt += "3. WHERE CLAUSE: Use IN (subquery) to filter outer query\n\n"
+        
+        elif pattern_key == 'NOT_IN_SELECT':
+            prompt += "Create structure:\n"
+            prompt += "1. OUTER QUERY: Select all items\n"
+            prompt += "2. INNER QUERY: Get IDs/values to exclude\n"
+            prompt += "3. WHERE CLAUSE: Use NOT IN (subquery) to filter\n\n"
+        
+        elif pattern_key == 'EXISTS_SELECT':
+            prompt += "Create structure:\n"
+            prompt += "1. OUTER QUERY: Select items to return\n"
+            prompt += "2. INNER QUERY: Check existence with WHERE EXISTS\n"
+            prompt += "3. CORRELATION: Link outer and inner with table.id = subquery.id\n\n"
+        
+        prompt += "Format (NatSQL-style):\n"
+        prompt += "OUTER: [main selection]\n"
+        prompt += "INNER: [subquery]\n"
+        prompt += "PATTERN: [how they connect]\n\n"
         
         prompt += "Generate the intermediate representation:\n"
         
         return self._generate_with_llm(
             prompt, 
-            "You are an expert at composing nested SQL queries from sub-queries."
+            f"You are an expert at composing nested SQL queries using the {pattern_key} pattern."
         )
     
+    # Also add method to validate nested structure:
+
+    def _validate_nested_structure(
+        self,
+        generated_sql: str,
+        pattern_key: str
+    ) -> bool:
+        """
+        NEW: Validate that generated SQL follows expected nested pattern
+        """
+        sql_upper = generated_sql.upper()
+        
+        if pattern_key == 'COMPARISON_WITH_AGG':
+            # Should have: SELECT ... WHERE col op (SELECT agg(...)
+            has_comparison = any(op in sql_upper for op in ['> (SELECT', '< (SELECT', '>= (SELECT', '<= (SELECT'])
+            has_agg = any(agg in sql_upper for agg in ['AVG(', 'MAX(', 'MIN(', 'COUNT(', 'SUM('])
+            return has_comparison and has_agg
+        
+        elif pattern_key == 'IN_SELECT':
+            # Should have: WHERE ... IN (SELECT ...)
+            return 'IN (SELECT' in sql_upper or 'IN ( SELECT' in sql_upper
+        
+        elif pattern_key == 'NOT_IN_SELECT':
+            # Should have: WHERE ... NOT IN (SELECT ...)
+            return 'NOT IN (SELECT' in sql_upper or 'NOT IN ( SELECT' in sql_upper
+        
+        elif pattern_key == 'EXISTS_SELECT':
+            # Should have: WHERE EXISTS (SELECT ...)
+            return 'EXISTS (SELECT' in sql_upper or 'EXISTS ( SELECT' in sql_upper
+        
+        elif pattern_key == 'EXCEPT':
+            # Should have: SELECT ... EXCEPT SELECT ...
+            return 'EXCEPT' in sql_upper
+        
+        return True  # Default: assume valid
+
+
     def _natsql_to_sql(
         self,
         natsql_intermediate: str,
@@ -521,13 +664,19 @@ Output ONLY the SQL query:"""
         natsql_intermediate: str,
         generated_sql: str,
         examples: List[Dict],
-        confidence: float
+        confidence: float,
+        pattern_key: str = None  # NEW
     ) -> str:
         """Generate reasoning for Step 6c"""
-        reasoning = "STEP 6c: DECOMPOSED GENERATION\n"
+        reasoning = "STEP 6c: ENHANCED DECOMPOSED GENERATION\n"
         reasoning += "=" * 50 + "\n\n"
         
         reasoning += f"Main Question: {question}\n\n"
+        
+        # NEW: Show pattern used
+        if pattern_key:
+            reasoning += f"Nested Pattern Used: {pattern_key}\n"
+            reasoning += f"Pattern Description: {self.nested_templates[pattern_key]['description']}\n\n"
         
         reasoning += f"Sub-questions ({len(sub_questions)}):\n"
         for i, sq in enumerate(sub_questions, 1):
@@ -561,6 +710,7 @@ Output ONLY the SQL query:"""
         reasoning += "Confidence Factors:\n"
         if confidence >= 0.75:
             reasoning += "  ✓ High confidence - Strong sub-query decomposition and composition\n"
+            reasoning += f"  ✓ Used {pattern_key} pattern for nested structure\n"
         elif confidence >= 0.55:
             reasoning += "  ⚠ Medium confidence - Acceptable decomposition quality\n"
         else:

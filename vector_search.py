@@ -73,10 +73,16 @@ class DualSimilaritySelector:
         reasoning += f"Requested: {k} similar examples\n"
         reasoning += f"Found: {len(similar_examples)} examples\n\n"
         
-        # Check if structural reranking was applied
+        # Check reranking method
         has_structural = any('structural_similarity' in ex for ex in similar_examples)
+        has_style = any('style_similarity' in ex for ex in similar_examples)
         
-        if has_structural:
+        if has_structural and has_style:
+            reasoning += "Ranking Method: DAIL-SQL (Semantic + Structural + Style)\n"
+            reasoning += "  - Semantic Weight: 50%\n"
+            reasoning += "  - Structural Weight: 30%\n"
+            reasoning += "  - Style Weight: 20%\n\n"
+        elif has_structural:
             reasoning += "Ranking Method: Combined (Semantic + Structural)\n"
             reasoning += "  - Semantic Weight: 70%\n"
             reasoning += "  - Structural Weight: 30%\n\n"
@@ -89,7 +95,15 @@ class DualSimilaritySelector:
         for i, example in enumerate(similar_examples, 1):
             reasoning += f"\n{i}. "
             
-            if has_structural:
+            if has_structural and has_style:
+                sem_score = example.get('similarity_score', 0)
+                struct_score = example.get('structural_similarity', 0)
+                style_score = example.get('style_similarity', 0)
+                combined_score = example.get('combined_score', 0)
+                
+                reasoning += f"Combined: {combined_score:.4f}\n"
+                reasoning += f"   (Sem: {sem_score:.4f}, Struct: {struct_score:.4f}, Style: {style_score:.4f})\n"
+            elif has_structural:
                 sem_score = example.get('similarity_score', 0)
                 struct_score = example.get('structural_similarity', 0)
                 combined_score = example.get('combined_score', 0)
@@ -102,7 +116,6 @@ class DualSimilaritySelector:
             reasoning += f"   Database: {example.get('db_id', 'unknown')}\n"
             reasoning += f"   Question: {example.get('question', 'N/A')}\n"
             
-            # Show SQL query (truncated if too long)
             sql = example.get('query', 'N/A')
             if len(sql) > 150:
                 reasoning += f"   SQL: {sql[:150]}...\n"

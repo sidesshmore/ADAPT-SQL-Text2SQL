@@ -116,7 +116,7 @@ class ADAPTBaseline:
         k: int = 10,
         preliminary_sql: str = None
     ) -> Dict:
-        """STEP 4: Similarity Search with optional Structural Reranking"""
+        """STEP 4: Similarity Search with DAIL-SQL Structural Reranking"""
         if self.example_selector is None:
             return {
                 'similar_examples': [],
@@ -131,25 +131,30 @@ class ADAPTBaseline:
             k=k
         )
         
-        # Apply structural reranking if enabled and preliminary SQL available
+        # Apply DAIL-SQL structural + style reranking if enabled
         if self.enable_structural_reranking and preliminary_sql:
-            print("   Applying structural similarity reranking...")
+            print("   Applying DAIL-SQL structural + style reranking...")
             
             from structural_similarity import enhance_example_selection
             
+            # DAIL-SQL weights: 0.5 semantic + 0.3 structural + 0.2 style
             reranked_examples = enhance_example_selection(
                 examples=result['similar_examples'],
                 preliminary_sql=preliminary_sql,
-                semantic_weight=0.7,
-                structural_weight=0.3
+                semantic_weight=0.5,
+                structural_weight=0.3,
+                style_weight=0.2
             )
             
             result['similar_examples'] = reranked_examples
             result['reranking_applied'] = True
+            result['reranking_method'] = 'DAIL-SQL (semantic + structural + style)'
             
-            print(f"   âœ… Reranked {len(reranked_examples)} examples by structure")
+            print(f"   ✓ Reranked {len(reranked_examples)} examples")
+            print(f"   Weights: 50% semantic + 30% structural + 20% style")
         else:
             result['reranking_applied'] = False
+            result['reranking_method'] = 'None'
         
         return result
     

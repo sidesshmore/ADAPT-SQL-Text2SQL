@@ -220,6 +220,109 @@ class SQLStructuralAnalyzer:
             vector.append(1.0 if structure['join_pattern'] == pattern else 0.0)
         
         return vector
+
+    def analyze_ground_truth_style(self, sql: str) -> Dict:
+        """
+        Analyze stylistic patterns common in ground truth SQL
+        These patterns improve EM matching
+        
+        Returns:
+            {
+                'alias_style': str,  # 'explicit' vs 'implicit' vs 'none'
+                'join_order': str,  # 'alphabetical' vs 'dependency' vs 'random'
+                'clause_spacing': str,  # 'compact' vs 'spaced'
+                'keyword_case': str,  # 'upper' vs 'lower' vs 'mixed'
+                'column_selection': str,  # 'explicit' vs 'wildcard'
+                'aggregation_naming': str,  # 'function_style' vs 'descriptive'
+                'style_vector': List[float]
+            }
+        """
+        sql_upper = sql.upper()
+        
+        style = {}
+        
+        # 1. Alias style (AVG(age) vs AVG(age) AS avg_age)
+        has_as = ' AS ' in sql_upper
+        num_as = sql_upper.count(' AS ')
+        num_agg = sum(sql_upper.count(agg) for agg in ['COUNT', 'SUM', 'AVG', 'MAX', 'MIN'])
+        
+        if num_agg > 0 and num_as >= num_agg:
+            style['alias_style'] = 'explicit'
+        elif num_as > 0:
+            style['alias_style'] = 'implicit'
+        else:
+            style['alias_style'] = 'none'
+        
+        # 2. JOIN order pattern
+        joins = re.findall(r'JOIN\s+(\w+)', sql_upper)
+        if len(joins) > 1:
+            alphabetical = all(joins[i] <= joins[i+1] for i in range(len(joins)-1))
+            style['join_order'] = 'alphabetical' if alphabetical else 'dependency'
+        else:
+            style['join_order'] = 'single' if joins else 'none'
+        
+        # 3. Keyword case
+        upper_keywords = sum(1 for kw in ['SELECT', 'FROM', 'WHERE', 'JOIN'] if kw in sql)
+        lower_keywords = sum(1 for kw in ['select', 'from', 'where', 'join'] if kw in sql)
+        
+        if upper_keywords > lower_keywords:
+            style['keyword_case'] = 'upper'
+        elif lower_keywords > upper_keywords:
+            style['keyword_case'] = 'lower'
+        else:
+            style['keyword_case'] = 'mixed'
+        
+        # 4. Column selection style
+        if 'SELECT *' in sql_upper or 'SELECT  *' in sql_upper:
+            style['column_selection'] = 'wildcard'
+        else:
+            style['column_selection'] = 'explicit'
+        
+        # 5. Aggregation naming convention
+        # Check if aggregations use function-style names (e.g., avg(age)) or descriptive (e.g., average_age)
+        agg_matches = re.findall(r'(COUNT|SUM|AVG|MAX|MIN)\s*\([^)]+\)(?:\s+AS\s+(\w+))?', sql_upper)
+        descriptive_aliases = sum(1 for _, alias in agg_matches if alias and len(alias) > 8)
+        
+        if descriptive_aliases > 0:
+            style['aggregation_naming'] = 'descriptive'
+        else:
+            style['aggregation_naming'] = 'function_style'
+        
+        # 6. Clause spacing (compact vs spaced)
+        avg_line_length = len(sql) / (sql.count('\n') + 1)
+        style['clause_spacing'] = 'compact' if avg_line_length > 80 else 'spaced'
+        
+        # Create style vector for similarity comparison
+        style['style_vector'] = self._create_style_vector(style)
+        
+        return style
+
+    def _create_style_vector(self, style: Dict) -> List[float]:
+        """Convert style features to numerical vector"""
+        vector = []
+        
+        # Alias style (one-hot)
+        for val in ['explicit', 'implicit', 'none']:
+            vector.append(1.0 if style['alias_style'] == val else 0.0)
+        
+        # JOIN order (one-hot)
+        for val in ['alphabetical', 'dependency', 'single', 'none']:
+            vector.append(1.0 if style['join_order'] == val else 0.0)
+        
+        # Keyword case (one-hot)
+        for val in ['upper', 'lower', 'mixed']:
+            vector.append(1.0 if style['keyword_case'] == val else 0.0)
+        
+        # Column selection (binary)
+        vector.append(1.0 if style['column_selection'] == 'explicit' else 0.0)
+        
+        # Aggregation naming (binary)
+        vector.append(1.0 if style['aggregation_naming'] == 'function_style' else 0.0)
+        
+        # Clause spacing (binary)
+        vector.append(1.0 if style['clause_spacing'] == 'compact' else 0.0)
+        
+        return vector
     
     def calculate_similarity(
         self,
@@ -232,6 +335,33 @@ class SQLStructuralAnalyzer:
         """
         vec1 = structure1['structure_vector']
         vec2 = structure2['structure_vector']
+        
+        if len(vec1) != len(vec2):
+            return 0.0
+        
+        # Cosine similarity
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        magnitude1 = sum(a * a for a in vec1) ** 0.5
+        magnitude2 = sum(b * b for b in vec2) ** 0.5
+        
+        if magnitude1 == 0 or magnitude2 == 0:
+            return 0.0
+        
+        similarity = dot_product / (magnitude1 * magnitude2)
+        
+        return max(0.0, min(1.0, similarity))
+
+    def calculate_style_similarity(
+        self,
+        style1: Dict,
+        style2: Dict
+    ) -> float:
+        """
+        Calculate stylistic similarity between two SQL queries
+        Returns score in [0, 1] where 1 = identical style
+        """
+        vec1 = style1['style_vector']
+        vec2 = style2['style_vector']
         
         if len(vec1) != len(vec2):
             return 0.0
@@ -265,45 +395,61 @@ class EnhancedExampleSelector:
     def rerank_examples(
         self,
         examples: List[Dict],
-        preliminary_sql: str
+        preliminary_sql: str,
+        semantic_weight: float = 0.5,
+        structural_weight: float = 0.3,
+        style_weight: float = 0.2
     ) -> List[Dict]:
         """
-        Rerank examples using combined semantic + structural similarity
+        Rerank examples using DAIL-SQL approach with style similarity
         
         Args:
             examples: Examples with 'similarity_score' and 'query' fields
             preliminary_sql: Preliminary SQL from Step 3
+            semantic_weight: Weight for semantic similarity (default: 0.5)
+            structural_weight: Weight for structural similarity (default: 0.3)
+            style_weight: Weight for ground-truth style similarity (default: 0.2)
             
         Returns:
-            Reranked examples with updated 'combined_score' field
+            Reranked examples with updated scores
         """
-        # Analyze preliminary SQL structure
+        # Analyze preliminary SQL
         target_structure = self.analyzer.analyze_structure(preliminary_sql)
+        target_style = self.analyzer.analyze_ground_truth_style(preliminary_sql)
         
-        # Calculate structural similarity for each example
+        # Calculate similarities for each example
         for example in examples:
             example_sql = example.get('query', '')
             
             if not example_sql:
                 example['structural_similarity'] = 0.0
+                example['style_similarity'] = 0.0
                 example['combined_score'] = example.get('similarity_score', 0.0)
                 continue
             
-            # Analyze example structure
+            # Analyze example
             example_structure = self.analyzer.analyze_structure(example_sql)
+            example_style = self.analyzer.analyze_ground_truth_style(example_sql)
             
             # Calculate structural similarity
             structural_sim = self.analyzer.calculate_similarity(
                 target_structure, example_structure
             )
             
-            example['structural_similarity'] = structural_sim
+            # Calculate style similarity
+            style_sim = self.analyzer.calculate_style_similarity(
+                target_style, example_style
+            )
             
-            # Calculate combined score
+            example['structural_similarity'] = structural_sim
+            example['style_similarity'] = style_sim
+            
+            # Calculate combined score (DAIL-SQL approach)
             semantic_score = example.get('similarity_score', 0.0)
             combined_score = (
-                self.semantic_weight * semantic_score +
-                self.structural_weight * structural_sim
+                semantic_weight * semantic_score +
+                structural_weight * structural_sim +
+                style_weight * style_sim
             )
             
             example['combined_score'] = combined_score
@@ -319,24 +465,28 @@ class EnhancedExampleSelector:
 # ============================================================================
 
 def enhance_example_selection(
-    examples: List[Dict],
-    preliminary_sql: str,
-    semantic_weight: float = 0.7,
-    structural_weight: float = 0.3
-) -> List[Dict]:
-    """
-    Convenience function for enhanced example selection
-    
-    Args:
-        examples: Examples from vector search (Step 4)
-        preliminary_sql: Preliminary SQL from Step 3
-        semantic_weight: Weight for semantic similarity
-        structural_weight: Weight for structural similarity
+        examples: List[Dict],
+        preliminary_sql: str,
+        semantic_weight: float = 0.5,
+        structural_weight: float = 0.3,
+        style_weight: float = 0.2
+    ) -> List[Dict]:
+        """
+        Convenience function for enhanced example selection (DAIL-SQL approach)
         
-    Returns:
-        Reranked examples with combined scores
-    """
-    selector = EnhancedExampleSelector(semantic_weight, structural_weight)
-    return selector.rerank_examples(examples, preliminary_sql)
+        Args:
+            examples: Examples from vector search (Step 4)
+            preliminary_sql: Preliminary SQL from Step 3
+            semantic_weight: Weight for semantic similarity (default: 0.5)
+            structural_weight: Weight for structural similarity (default: 0.3)
+            style_weight: Weight for ground-truth style similarity (default: 0.2)
+            
+        Returns:
+            Reranked examples with combined scores
+        """
+        selector = EnhancedExampleSelector(semantic_weight, structural_weight)
+        # Pass style_weight to rerank_examples
+        return selector.rerank_examples(examples, preliminary_sql, 
+                                        semantic_weight, structural_weight, style_weight)
 
 

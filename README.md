@@ -12,7 +12,7 @@ ADAPT-SQL demonstrates superior performance compared to leading Text-to-SQL syst
 
 | Rank | System | Organization | EX Score | Paper/Code |
 |------|--------|--------------|----------|------------|
-| **1** | **ADAPT-SQL (Ours)** | **-** | **91.8%** | **This Repository** |
+| **1** | **ADAPT-SQL** | Sidessh More | **91.8%** | **This Repository** |
 | 2 | MiniSeek | Anonymous | 91.2% | Coming Soon |
 | 3 | DAIL-SQL + GPT-4 + Self-Consistency | Alibaba Group | 86.6% | Gao & Wang et al., 2023 |
 | 4 | DAIL-SQL + GPT-4 | Alibaba Group | 86.2% | Gao & Wang et al., 2023 |
@@ -155,8 +155,8 @@ Fuzzy schema matching reduces false validation errors. Failed queries are regene
 ## Evaluation
 
 Performance measured on Spider dev set (1,034 examples) using official metrics:
-- **Execution Accuracy (EX)**: 91.8% - Results match ground truth
-- **Exact-Set-Match (EM)**: Detailed component-level SQL structure comparison
+- **Execution Accuracy (EX)**: 91.8% 
+- **Exact-Set-Match (EM)**: 35.0%
 
 ## Key Insights
 

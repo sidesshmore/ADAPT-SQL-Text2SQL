@@ -1,5 +1,5 @@
 {
   "dimension": 768,
-  "num_examples": 1034,
+  "num_examples": 2147,
   "embedding_model": "nomic-embed-text"
 }

@@ -5,6 +5,7 @@ Optimized for A100 GPU with efficient training
 
 import json
 import torch
+import psutil  # Import psutil before unsloth to avoid cache issues
 from pathlib import Path
 from datasets import load_dataset
 from unsloth import FastLanguageModel
@@ -110,6 +111,10 @@ def train():
     print("QWEN3-CODER FINE-TUNING FOR SPIDER TEXT-TO-SQL")
     print("="*60)
 
+    # Ensure psutil is available globally for unsloth's compiled cache
+    import builtins
+    builtins.psutil = psutil
+
     # Load data
     train_dataset, val_dataset = load_data()
 
@@ -140,6 +145,8 @@ def train():
         lr_scheduler_type="cosine",
         seed=42,
         report_to="none",  # Change to "wandb" if you want to use Weights & Biases
+        dataloader_num_workers=4,  # Explicit worker count to avoid psutil auto-detection
+        dataloader_pin_memory=True,
     )
 
     # Create trainer

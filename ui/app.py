@@ -109,17 +109,17 @@ def main():
     # Sidebar configuration
     with st.sidebar:
         st.header("Configuration")
-        
-        model = st.selectbox("Model", ["llama3.2", "codellama", "mistral", "qwen2.5"])
-        
+
+        model = st.selectbox("Model", ["qwen3-coder", "qwen3-spider-sql", "llama3.2", "codellama", "mistral"])
+
         spider_json_path = st.text_input(
             "Spider dev.json",
-            value="/home/smore123/ADAPT-SQL/data/spider/dev.json"
+            value="/home/smore123/ADAPT-SQL-GIT/ADAPT-SQL-Text2SQL/data/spider/dev.json"
         )
-        
+
         spider_db_dir = st.text_input(
             "Spider DB directory",
-            value="/home/smore123/ADAPT-SQL/data/spider/spider_data/database"
+            value="/home/smore123/ADAPT-SQL-GIT/ADAPT-SQL-Text2SQL/data/spider/spider_data/database"
         )
         
         vector_store_path = st.text_input(

@@ -33,7 +33,13 @@ MAX_STEPS = -1         # -1 means use num_epochs instead
 PROJECT_ROOT = Path(__file__).parent.parent
 TRAIN_DATA = PROJECT_ROOT / "finetuning" / "train_data.jsonl"
 VAL_DATA = PROJECT_ROOT / "finetuning" / "val_data.jsonl"
-OUTPUT_DIR = PROJECT_ROOT / "finetuning" / "checkpoints"
+
+# Use scratch directory for checkpoints (more space on SOL supercomputer)
+SCRATCH_DIR = Path("/scratch/smore123/ADAPT-SQL")
+OUTPUT_DIR = SCRATCH_DIR / "finetuning" / "checkpoints"
+
+# Create output directory if it doesn't exist
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def format_chat_template(example):

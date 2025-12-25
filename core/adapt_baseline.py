@@ -134,9 +134,7 @@ class ADAPTBaseline:
         # Apply DAIL-SQL structural + style reranking if enabled
         if self.enable_structural_reranking and preliminary_sql:
             print("   Applying DAIL-SQL structural + style reranking...")
-            
-            from structural_similarity import enhance_example_selection
-            
+
             # DAIL-SQL weights: 0.5 semantic + 0.3 structural + 0.2 style
             reranked_examples = enhance_example_selection(
                 examples=result['similar_examples'],

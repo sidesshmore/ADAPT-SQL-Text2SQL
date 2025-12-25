@@ -8,7 +8,7 @@ Retry Strategy based on Spider benchmark metrics:
 """
 import ollama
 from typing import Dict, List, Optional
-from adapt_baseline import ADAPTBaseline
+from core.adapt_baseline import ADAPTBaseline
 
 
 class EnhancedRetryEngine:

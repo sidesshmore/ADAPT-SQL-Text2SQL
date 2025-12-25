@@ -5,10 +5,15 @@ Cleaner version with display functions moved to separate module
 import streamlit as st
 import json
 import sqlite3
+import sys
 from pathlib import Path
-from adapt_baseline import ADAPTBaseline
-from enhanced_retry_engine import EnhancedRetryEngine
-from display_utils import (
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core.adapt_baseline import ADAPTBaseline
+from ui.enhanced_retry_engine import EnhancedRetryEngine
+from ui.display_utils import (
     display_schema_tab,
     display_complexity_tab,
     display_examples_tab,

@@ -11,11 +11,11 @@ from datetime import datetime
 import sys
 import time
 
-# Add parent directory to path
-sys.path.append(str(Path(__file__).parent.parent))
+# Add project root to path (ui/pages -> ui -> root)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from adapt_baseline import ADAPTBaseline
-from batch_utils import save_checkpoint, load_checkpoint
+from core.adapt_baseline import ADAPTBaseline
+from ui.batch_utils import save_checkpoint, load_checkpoint
 
 
 st.set_page_config(

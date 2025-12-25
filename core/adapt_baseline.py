@@ -4,21 +4,21 @@ Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing +
 Generation + Validation + Retry + Execute + Evaluate
 """
 from typing import Dict, List
-from schema_linking import EnhancedSchemaLinker
-from query_complexity import QueryComplexityClassifier, ComplexityClass
-from prel_sql_prediction import PreliminaryPredictor
-from vector_search import DualSimilaritySelector
-from vector_store import SQLVectorStore
-from routing_strategy import RoutingStrategy, GenerationStrategy
-from few_shot import FewShotGenerator
-from intermediate_repr import IntermediateRepresentationGenerator
-from decomposed_generation import DecomposedGenerator
-from validate_sql import SQLValidator
-from validation_feedback_retry import ValidationFeedbackRetry
-from execute_compare import DatabaseManager
-from evaluation import Text2SQLEvaluator
-from sql_normalizer import normalize_sql_post_generation
-from structural_similarity import enhance_example_selection
+from pipeline.schema_linking import EnhancedSchemaLinker
+from pipeline.query_complexity import QueryComplexityClassifier, ComplexityClass
+from pipeline.prel_sql_prediction import PreliminaryPredictor
+from pipeline.vector_search import DualSimilaritySelector
+from utils.vector_store import SQLVectorStore
+from pipeline.routing_strategy import RoutingStrategy, GenerationStrategy
+from pipeline.few_shot import FewShotGenerator
+from pipeline.intermediate_repr import IntermediateRepresentationGenerator
+from pipeline.decomposed_generation import DecomposedGenerator
+from pipeline.validate_sql import SQLValidator
+from pipeline.validation_feedback_retry import ValidationFeedbackRetry
+from pipeline.execute_compare import DatabaseManager
+from pipeline.evaluation import Text2SQLEvaluator
+from pipeline.sql_normalizer import normalize_sql_post_generation
+from utils.structural_similarity import enhance_example_selection
 
 
 class ADAPTBaseline:

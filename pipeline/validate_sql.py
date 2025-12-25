@@ -5,7 +5,7 @@ Validates generated SQL for syntax, schema compliance, and logical correctness
 import re
 import sqlparse
 from typing import Dict, List, Set, Tuple
-from fuzzy_schema_validator import FuzzySchemaValidator
+from utils.fuzzy_schema_validator import FuzzySchemaValidator
 
 
 class SQLValidator:

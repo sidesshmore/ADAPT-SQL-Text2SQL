@@ -10,12 +10,12 @@ from pathlib import Path
 from datetime import datetime
 import sys
 
-# Add parent directory to path
-sys.path.append(str(Path(__file__).parent.parent))
+# Add project root to path (ui/pages -> ui -> root)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from adapt_baseline import ADAPTBaseline
-from enhanced_retry_engine import EnhancedRetryEngine
-from batch_utils import (
+from core.adapt_baseline import ADAPTBaseline
+from ui.enhanced_retry_engine import EnhancedRetryEngine
+from ui.batch_utils import (
     display_comprehensive_statistics,
     generate_comprehensive_csv,
     save_checkpoint,

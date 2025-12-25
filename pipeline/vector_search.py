@@ -3,7 +3,7 @@ STEP 4: Similarity Search
 Returns similar examples with their questions, SQL queries, and similarity scores
 """
 from typing import List, Dict
-from vector_store import SQLVectorStore
+from utils.vector_store import SQLVectorStore
 
 
 class DualSimilaritySelector:

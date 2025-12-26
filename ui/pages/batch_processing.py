@@ -291,7 +291,19 @@ def main():
         # Progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
+
+        # Live statistics placeholders
+        st.markdown("### 📊 Live Statistics")
+        stats_container = st.container()
+        with stats_container:
+            col1, col2, col3, col4 = st.columns(4)
+            metric_processed = col1.empty()
+            metric_ex = col2.empty()
+            metric_em = col3.empty()
+            metric_avg_retry = col4.empty()
+
+        st.markdown("---")
+
         # Initialize or resume results
         if 'batch_results' not in st.session_state or not st.session_state.get('checkpoint_resumed', False):
             results = []
@@ -379,10 +391,56 @@ def main():
                 with st.expander("View Error Details"):
                     st.code(traceback.format_exc())
             
+            # Update live statistics
+            def calculate_live_stats(results):
+                """Calculate current EX, EM, and retry stats"""
+                if not results:
+                    return 0, 0.0, 0.0, 0.0
+
+                total = len(results)
+                ex_count = 0
+                em_count = 0
+                total_retries = 0
+
+                for r in results:
+                    result = r['result']
+
+                    # Count execution matches
+                    if enable_evaluation and 'step11' in result:
+                        step11 = result['step11']
+                        if step11.get('execution_match', False):
+                            ex_count += 1
+                        if step11.get('exact_match', False):
+                            em_count += 1
+
+                    # Count retries
+                    if enable_validation_retry and 'step8' in result:
+                        step8 = result['step8']
+                        retry_count = step8.get('retry_count', 0)
+                        total_retries += retry_count
+
+                    # Add full retry count if available
+                    if r['retry_result']:
+                        total_retries += r['retry_result'].get('full_retry_count', 0)
+
+                ex_accuracy = (ex_count / total * 100) if total > 0 else 0
+                em_accuracy = (em_count / total * 100) if total > 0 else 0
+                avg_retries = total_retries / total if total > 0 else 0
+
+                return total, ex_accuracy, em_accuracy, avg_retries
+
+            # Calculate and update metrics
+            total, ex_acc, em_acc, avg_retries = calculate_live_stats(results)
+
+            metric_processed.metric("Processed", f"{total}/{end_idx - start_idx}")
+            metric_ex.metric("EX Accuracy", f"{ex_acc:.1f}%" if enable_evaluation else "N/A")
+            metric_em.metric("EM Accuracy", f"{em_acc:.1f}%" if enable_evaluation else "N/A")
+            metric_avg_retry.metric("Avg Retries", f"{avg_retries:.2f}" if enable_validation_retry else "N/A")
+
             # Save checkpoint every N queries
             if len(results) % checkpoint_interval == 0:
-                checkpoint_file = save_checkpoint(
-                    results, 
+                save_checkpoint(
+                    results,
                     st.session_state.batch_timestamp,
                     checkpoint_path
                 )

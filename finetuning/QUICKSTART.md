@@ -307,6 +307,13 @@ nvidia-smi
 
 ## Part 4: Fine-Tuning Pipeline
 
+**Important Note on Storage**:
+- Training checkpoints are saved to **scratch directory** (`/scratch/<netid>/ADAPT-SQL/`) instead of home directory
+- This is configured in `train_qwen.py` (line 38-39): `SCRATCH_DIR = Path("/scratch/smore123/ADAPT-SQL")`
+- **Update the NetID** in `train_qwen.py` to match your actual NetID before training!
+- Scratch provides ~10TB space vs ~50GB in home directory
+- Files persist but may be cleaned if unused for 60+ days
+
 ### Step 15: Prepare Training Data
 
 ```bash
@@ -348,6 +355,17 @@ python finetuning/prepare_training_data.py
 ### Step 16: Start Fine-Tuning
 
 ```bash
+# IMPORTANT: First update the NetID in train_qwen.py
+# Edit line 38 in train_qwen.py:
+# Change: SCRATCH_DIR = Path("/scratch/smore123/ADAPT-SQL")
+# To:     SCRATCH_DIR = Path("/scratch/<your_netid>/ADAPT-SQL")
+
+# Quick way to update:
+sed -i 's/smore123/<your_netid>/g' finetuning/train_qwen.py
+
+# Or manually edit the file:
+# nano finetuning/train_qwen.py  # or vim, emacs, etc.
+
 # Ensure GPU is available
 nvidia-smi
 
@@ -383,12 +401,12 @@ python finetuning/train_qwen.py
 - Learning rate: 2e-4
 - Max sequence length: 2048 tokens
 
-**Checkpoints saved to**:
-- `finetuning/checkpoints/checkpoint-100/`
-- `finetuning/checkpoints/checkpoint-200/`
+**Checkpoints saved to** (in scratch directory):
+- `/scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/checkpoint-100/`
+- `/scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/checkpoint-200/`
 - ...
-- `finetuning/checkpoints/final_model/` (LoRA adapters only)
-- `finetuning/checkpoints/merged_model/` (Full model for Ollama)
+- `/scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/final_model/` (LoRA adapters only)
+- `/scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/merged_model/` (Full model for Ollama)
 
 **Monitoring tips**:
 - Training loss should decrease from ~1.2 to ~0.3
@@ -398,8 +416,11 @@ python finetuning/train_qwen.py
 ### Step 17: Monitor Training (Optional)
 
 ```bash
-# In a separate terminal, watch the checkpoint directory
-watch -n 60 ls -lh finetuning/checkpoints/
+# In a separate terminal, watch the checkpoint directory in scratch
+watch -n 60 ls -lh /scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/
+
+# Example:
+# watch -n 60 ls -lh /scratch/smore123/ADAPT-SQL/finetuning/checkpoints/
 
 # Or monitor GPU usage
 watch -n 5 nvidia-smi
@@ -409,8 +430,11 @@ watch -n 5 nvidia-smi
 
 ```bash
 # If training is interrupted, resume from last checkpoint
-# Edit finetuning/train_qwen.py and add:
-# resume_from_checkpoint="finetuning/checkpoints/checkpoint-XXX"
+# First, find the latest checkpoint:
+ls -lth /scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/
+
+# Edit finetuning/train_qwen.py and add to training_args:
+# resume_from_checkpoint="/scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/checkpoint-XXX"
 
 # Then re-run
 python finetuning/train_qwen.py
@@ -424,10 +448,11 @@ python finetuning/train_qwen.py
 
 ```bash
 # Make sure you're still on SOL GPU node
-cd ~/ADAPT-SQL
+# Note: Checkpoints are saved to scratch directory for more space
+# The path is defined in train_qwen.py: /scratch/<your_netid>/ADAPT-SQL/
 
 # Check that training completed successfully
-ls -lh finetuning/checkpoints/merged_model/
+ls -lh /scratch/smore123/ADAPT-SQL/finetuning/checkpoints/merged_model/
 
 # Should show:
 # config.json
@@ -443,11 +468,14 @@ ls -lh finetuning/checkpoints/merged_model/
 # Total size should be ~14GB
 ```
 
+**Important**: Replace `smore123` with your actual NetID in all paths below.
+
 ### Step 20: Create Modelfile for Ollama
 
 ```bash
 # Create a Modelfile to import the fine-tuned model into Ollama
-cd ~/ADAPT-SQL/finetuning/checkpoints/merged_model
+# Navigate to the merged model directory in scratch
+cd /scratch/smore123/ADAPT-SQL/finetuning/checkpoints/merged_model
 
 # Create Modelfile
 cat > Modelfile << 'EOF'
@@ -494,10 +522,18 @@ ollama list
 cd ~/ADAPT-SQL
 source venv/bin/activate
 
+# The script will automatically look for the model in the scratch directory
+# Make sure to update the SCRATCH_DIR path in convert_to_ollama.py if needed
 python finetuning/convert_to_ollama.py
 
 # This will create the Ollama model automatically
 ```
+
+**Scratch Directory Notes**:
+- All checkpoints are saved to `/scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/`
+- This is configured in `train_qwen.py` (line 38-39)
+- Scratch has more space than home directory (~10TB vs ~50GB)
+- Files in scratch are persistent but may be cleaned if unused for 60+ days
 
 ### Step 22: Test Fine-Tuned Model on SOL
 
@@ -687,7 +723,8 @@ python finetuning/prepare_training_data.py
 python finetuning/train_qwen.py
 
 # Import fine-tuned model to Ollama on SOL
-cd ~/ADAPT-SQL/finetuning/checkpoints/merged_model
+# Note: Replace smore123 with your NetID
+cd /scratch/smore123/ADAPT-SQL/finetuning/checkpoints/merged_model
 cat > Modelfile << 'EOF'
 FROM ./model-00001-of-00004.safetensors
 PARAMETER temperature 0.1
@@ -812,6 +849,8 @@ MAX_STEPS = 100  # Add this line
 
 Since all processing happens on SOL, you'll need to transfer result files to view them locally:
 
+### Transfer Evaluation Results
+
 ```bash
 # On YOUR LOCAL MACHINE
 # Transfer results files
@@ -825,6 +864,21 @@ scp -r <netid>@sol.asu.edu:~/ADAPT-SQL/RESULTS ./
 # open RESULTS/batch_results_<timestamp>.csv  # macOS
 # Or use Excel, LibreOffice, etc.
 ```
+
+### Transfer Model Checkpoints (Optional)
+
+If you want to backup or use the fine-tuned model locally:
+
+```bash
+# On YOUR LOCAL MACHINE
+# Transfer the merged model from scratch directory (~14GB, takes 20-30 min)
+scp -r <netid>@sol.asu.edu:/scratch/<netid>/ADAPT-SQL/finetuning/checkpoints/merged_model ./finetuning/checkpoints/
+
+# Example with actual NetID:
+# scp -r smore123@sol.asu.edu:/scratch/smore123/ADAPT-SQL/finetuning/checkpoints/merged_model ./finetuning/checkpoints/
+```
+
+**Note**: Model checkpoints are stored in the scratch directory (`/scratch/<netid>/ADAPT-SQL/`) for space efficiency.
 
 Alternatively, you can analyze results directly on SOL:
 

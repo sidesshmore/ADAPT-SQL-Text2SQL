@@ -139,10 +139,13 @@ def main():
     print("CONVERT FINE-TUNED MODEL TO OLLAMA")
     print("="*60 + "\n")
 
-    # Paths
-    PROJECT_ROOT = Path(__file__).parent.parent
-    MERGED_MODEL_PATH = PROJECT_ROOT / "finetuning" / "checkpoints" / "merged_model"
-    GGUF_OUTPUT_PATH = PROJECT_ROOT / "finetuning" / "qwen3-spider-sql.gguf"
+    # Paths - Use scratch directory where train_qwen.py saves checkpoints
+    # UPDATE: Change 'smore123' to your actual NetID
+    SCRATCH_DIR = Path("/scratch/smore123/ADAPT-SQL")
+    MERGED_MODEL_PATH = SCRATCH_DIR / "finetuning" / "checkpoints" / "merged_model"
+
+    # Save GGUF to scratch as well (it's large)
+    GGUF_OUTPUT_PATH = SCRATCH_DIR / "finetuning" / "qwen3-spider-sql.gguf"
     MODEL_NAME = "qwen3-spider-sql"
 
     # Check if merged model exists

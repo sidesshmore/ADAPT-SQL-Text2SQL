@@ -122,7 +122,7 @@ class ValidationFeedbackRetry:
             
             # Validate the corrected SQL
             print(f"8.{retry_count}.3: Validating corrected SQL...")
-            from validate_sql import SQLValidator
+            from pipeline.validate_sql import SQLValidator
             validator = SQLValidator()
             
             new_validation = validator.validate_sql_enhanced(

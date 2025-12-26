@@ -13,12 +13,107 @@ from difflib import SequenceMatcher
 from collections import defaultdict
 
 
+class QueryPatternDetector:
+    """Detects linguistic patterns in natural language queries for SQL generation hints"""
+
+    def __init__(self):
+        self.superlative_patterns = {
+            'highest': ['LIMIT', 'ORDER BY DESC'],
+            'lowest': ['LIMIT', 'ORDER BY ASC'],
+            'most': ['LIMIT', 'ORDER BY DESC'],
+            'fewest': ['LIMIT', 'ORDER BY ASC'],
+            'least': ['LIMIT', 'ORDER BY ASC'],
+            'top': ['LIMIT', 'ORDER BY DESC'],
+            'bottom': ['LIMIT', 'ORDER BY ASC'],
+            'maximum': ['MAX aggregate OR LIMIT with ORDER BY DESC'],
+            'minimum': ['MIN aggregate OR LIMIT with ORDER BY ASC'],
+            'best': ['LIMIT', 'ORDER BY DESC'],
+            'worst': ['LIMIT', 'ORDER BY ASC'],
+            'first': ['LIMIT', 'ORDER BY ASC'],
+            'last': ['LIMIT', 'ORDER BY DESC']
+        }
+
+        self.negation_patterns = {
+            'not': 'NOT IN or EXCEPT',
+            'without': 'NOT IN or EXCEPT or LEFT JOIN with NULL',
+            'except': 'EXCEPT set operation',
+            'but not': 'EXCEPT or NOT IN',
+            'excluding': 'NOT IN or EXCEPT',
+            'never': 'NOT IN or WHERE NOT EXISTS',
+            'none': 'NOT IN or COUNT = 0'
+        }
+
+        self.set_operation_hints = {
+            'both': 'INTERSECT or double-condition WHERE',
+            'either': 'UNION',
+            'in common': 'INTERSECT',
+            'shared': 'INTERSECT'
+        }
+
+    def detect_patterns(self, question: str) -> Dict:
+        """Detect all patterns in question and return SQL generation hints"""
+        question_lower = question.lower()
+
+        detected = {
+            'superlatives': [],
+            'negations': [],
+            'set_operations': [],
+            'requires_limit': False,
+            'requires_order_by': False,
+            'requires_except': False,
+            'aggregation_context': None
+        }
+
+        # Detect superlatives
+        for pattern, sql_hints in self.superlative_patterns.items():
+            if pattern in question_lower:
+                detected['superlatives'].append({
+                    'pattern': pattern,
+                    'sql_hints': sql_hints,
+                    'position': question_lower.index(pattern)
+                })
+                detected['requires_limit'] = True
+                detected['requires_order_by'] = True
+
+        # Detect negations
+        for pattern, sql_hint in self.negation_patterns.items():
+            if pattern in question_lower:
+                detected['negations'].append({
+                    'pattern': pattern,
+                    'sql_hint': sql_hint,
+                    'position': question_lower.index(pattern)
+                })
+                if 'EXCEPT' in sql_hint:
+                    detected['requires_except'] = True
+
+        # Detect set operations
+        for pattern, sql_hint in self.set_operation_hints.items():
+            if pattern in question_lower:
+                detected['set_operations'].append({
+                    'pattern': pattern,
+                    'sql_hint': sql_hint
+                })
+
+        # Contextual analysis: determine if MAX/MIN aggregate or ORDER BY + LIMIT
+        if detected['superlatives']:
+            if any(word in question_lower for word in ['how many', 'count', 'number of']):
+                detected['aggregation_context'] = 'COUNT with GROUP BY + ORDER BY + LIMIT'
+            elif any(word in question_lower for word in ['total', 'sum', 'average', 'mean']):
+                detected['aggregation_context'] = 'Aggregate (SUM/AVG) with ORDER BY + LIMIT'
+            else:
+                detected['aggregation_context'] = 'Simple ORDER BY + LIMIT'
+
+        return detected
+
+
 class EnhancedSchemaLinker:
     def __init__(self, model: str = "qwen3-coder"):
         self.model = model
         # Thresholds for fuzzy matching
         self.table_match_threshold = 0.6
         self.column_match_threshold = 0.5
+        # Pattern detector for linguistic analysis
+        self.pattern_detector = QueryPatternDetector()
     
     def link_schema(
         self, 
@@ -50,9 +145,24 @@ class EnhancedSchemaLinker:
         print(f"\n{'='*60}")
         print("STEP 1: ENHANCED SCHEMA LINKING (THREE-LAYER APPROACH)")
         print(f"{'='*60}\n")
-        
+
         layer_details = {}
-        
+
+        # =================================================================
+        # PATTERN DETECTION: Analyze linguistic patterns
+        # =================================================================
+        print("PATTERN DETECTION: Analyzing linguistic patterns...")
+        detected_patterns = self.pattern_detector.detect_patterns(question)
+        print(f"   Superlatives: {len(detected_patterns['superlatives'])}")
+        print(f"   Negations: {len(detected_patterns['negations'])}")
+        print(f"   Set Operations: {len(detected_patterns['set_operations'])}")
+        print(f"   Requires LIMIT: {detected_patterns['requires_limit']}")
+        print(f"   Requires EXCEPT: {detected_patterns['requires_except']}")
+        if detected_patterns['aggregation_context']:
+            print(f"   Context: {detected_patterns['aggregation_context']}")
+        layer_details['pattern_detection'] = detected_patterns
+        print()
+
         # =================================================================
         # LAYER 1: STRING MATCHING PRE-FILTER
         # =================================================================
@@ -159,7 +269,8 @@ class EnhancedSchemaLinker:
             'pruned_schema': pruned_schema,
             'schema_links': schema_links,
             'reasoning': reasoning,
-            'layer_details': layer_details
+            'layer_details': layer_details,
+            'detected_patterns': detected_patterns
         }
     
     # =====================================================================

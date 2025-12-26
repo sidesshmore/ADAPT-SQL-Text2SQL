@@ -89,7 +89,75 @@ class DecomposedGenerator:
         # Default: IN_SELECT (most common)
         return 'IN_SELECT'
 
-    
+    def _analyze_ground_truth_nested_patterns(self, examples: List[Dict]) -> Dict:
+        """
+        NEW Phase 2: Analyze ground truth nested query patterns from examples
+        Learn common structures, subquery positions, correlation patterns
+        (Inspired by intermediate_repr.py pattern learning - lines 132-181)
+        """
+        patterns = {
+            'common_nested_structures': [],
+            'subquery_positions': [],  # WHERE, SELECT, FROM
+            'correlation_patterns': [],  # Correlated vs uncorrelated
+            'nested_levels': [],  # Single vs multi-level nesting
+            'composition_styles': []  # How inner/outer queries connect
+        }
+
+        for example in examples:
+            sql = example.get('query', '')
+            if not sql:
+                continue
+
+            sql_upper = sql.upper()
+
+            # Count nesting level (number of SELECT statements)
+            select_count = sql_upper.count('SELECT')
+            if select_count > 1:
+                patterns['nested_levels'].append(select_count - 1)
+
+            # Detect subquery position and structure
+            if 'IN (SELECT' in sql_upper or 'IN ( SELECT' in sql_upper:
+                patterns['subquery_positions'].append('WHERE_IN')
+                patterns['common_nested_structures'].append('IN_SELECT')
+            elif 'NOT IN (SELECT' in sql_upper or 'NOT IN ( SELECT' in sql_upper:
+                patterns['subquery_positions'].append('WHERE_NOT_IN')
+                patterns['common_nested_structures'].append('NOT_IN_SELECT')
+            elif 'EXISTS (SELECT' in sql_upper or 'EXISTS ( SELECT' in sql_upper:
+                patterns['subquery_positions'].append('WHERE_EXISTS')
+                patterns['common_nested_structures'].append('EXISTS_SELECT')
+            elif re.search(r'(>|<|>=|<=|=)\s*\(\s*SELECT', sql_upper):
+                patterns['subquery_positions'].append('WHERE_COMPARISON')
+                patterns['common_nested_structures'].append('COMPARISON_WITH_AGG')
+            elif 'EXCEPT' in sql_upper:
+                patterns['subquery_positions'].append('SET_OPERATION')
+                patterns['common_nested_structures'].append('EXCEPT')
+
+            # Detect correlation (does subquery reference outer table?)
+            # Pattern: outer table referenced inside subquery
+            correlation_pattern = r'SELECT.*WHERE.*\b(\w+)\.(\w+)\s*=\s*\(SELECT.*WHERE.*\1\.'
+            if re.search(correlation_pattern, sql, re.IGNORECASE):
+                patterns['correlation_patterns'].append('CORRELATED')
+            elif select_count > 1:
+                patterns['correlation_patterns'].append('UNCORRELATED')
+
+            # Composition style: how are queries connected?
+            if 'IN (SELECT' in sql_upper or 'IN ( SELECT' in sql_upper:
+                patterns['composition_styles'].append('FILTER_BY_SUBQUERY')
+            elif re.search(r'(>|<|>=|<=)\s*\(\s*SELECT\s+(AVG|MAX|MIN|SUM|COUNT)', sql_upper):
+                patterns['composition_styles'].append('COMPARE_WITH_AGGREGATE')
+            elif 'EXCEPT' in sql_upper:
+                patterns['composition_styles'].append('SET_DIFFERENCE')
+
+        # Find most common patterns using Counter
+        from collections import Counter
+        patterns['most_common_structure'] = Counter(patterns['common_nested_structures']).most_common(1)[0][0] if patterns['common_nested_structures'] else 'IN_SELECT'
+        patterns['most_common_position'] = Counter(patterns['subquery_positions']).most_common(1)[0][0] if patterns['subquery_positions'] else 'WHERE_IN'
+        patterns['most_common_composition'] = Counter(patterns['composition_styles']).most_common(1)[0][0] if patterns['composition_styles'] else 'FILTER_BY_SUBQUERY'
+        patterns['avg_nesting_level'] = sum(patterns['nested_levels']) / len(patterns['nested_levels']) if patterns['nested_levels'] else 1.0
+
+        return patterns
+
+
     def generate_sql_decomposed(
         self,
         question: str,
@@ -120,7 +188,14 @@ class DecomposedGenerator:
         # NEW: Identify nested pattern
         pattern_key = self._identify_nested_pattern(question, sub_questions)
         print(f"\n6c.0.5: Identified nested pattern: {pattern_key}")
-        
+
+        # NEW Phase 2: Analyze ground truth nested patterns
+        print("6c.0.6: Analyzing ground truth nested patterns...")
+        gt_patterns = self._analyze_ground_truth_nested_patterns(best_examples)
+        print(f"   Most common structure: {gt_patterns.get('most_common_structure', 'UNKNOWN')}")
+        print(f"   Most common position: {gt_patterns.get('most_common_position', 'UNKNOWN')}")
+        print(f"   Avg nesting level: {gt_patterns.get('avg_nesting_level', 1.0):.1f}")
+
         # Sub-step 6c.1: Generate Sub-SQLs
         print("\n6c.1: Generating sub-SQLs for each sub-question...")
         sub_sql_list = self._generate_sub_sqls(
@@ -155,7 +230,16 @@ class DecomposedGenerator:
             best_examples
         )
         print(f"   SQL generated: {len(generated_sql)} characters")
-        
+
+        # NEW Phase 2: Apply post-composition normalization
+        print("\n6c.3.5: Applying post-composition normalization...")
+        normalized_sql = self._apply_nested_normalization(generated_sql, pattern_key, gt_patterns)
+        if normalized_sql != generated_sql:
+            print(f"   ✓ Normalized: {len(normalized_sql) - len(generated_sql)} character diff")
+            generated_sql = normalized_sql
+        else:
+            print(f"   No changes needed")
+
         # NEW: Validate structure
         is_valid_structure = self._validate_nested_structure(generated_sql, pattern_key)
         if not is_valid_structure:
@@ -163,12 +247,13 @@ class DecomposedGenerator:
         else:
             print(f"   ✓ SQL follows {pattern_key} pattern")
         
-        # Calculate confidence
+        # Calculate confidence (with ground truth patterns)
         confidence = self._calculate_confidence(
             generated_sql,
             sub_sql_list,
             natsql_intermediate,
-            best_examples
+            best_examples,
+            gt_patterns  # NEW Phase 2: Pass ground truth patterns
         )
         
         # Generate reasoning
@@ -476,6 +561,35 @@ Output ONLY the SQL query:"""
         
         return True  # Default: assume valid
 
+    def _apply_nested_normalization(
+        self,
+        sql: str,
+        pattern_key: str,
+        gt_patterns: Dict
+    ) -> str:
+        """
+        NEW Phase 2: Apply normalization specific to nested queries
+        Based on ground truth patterns learned from examples
+        """
+        # 1. Normalize subquery whitespace
+        sql = re.sub(r'\(\s+SELECT', '(SELECT', sql)
+        sql = re.sub(r'SELECT\s+', 'SELECT ', sql)
+
+        # 2. Remove verbose subquery aliases if ground truth doesn't use them
+        # Common pattern: (SELECT ... FROM table AS subquery_alias) → (SELECT ... FROM table)
+        if 'most_common_composition' in gt_patterns:
+            if 'FILTER' in gt_patterns.get('most_common_composition', ''):
+                # Remove subquery aliases in WHERE IN contexts
+                sql = re.sub(r'\)\s+AS\s+\w+\s*\)', ')', sql, flags=re.IGNORECASE)
+
+        # 3. Normalize spacing around operators in subqueries
+        sql = re.sub(r'\s*(>|<|>=|<=|=)\s*\(\s*SELECT', r' \1 (SELECT', sql)
+
+        # 4. Ensure consistent NOT IN spacing
+        sql = re.sub(r'NOT\s+IN\s*\(', 'NOT IN (', sql, flags=re.IGNORECASE)
+
+        return sql
+
 
     def _natsql_to_sql(
         self,
@@ -612,18 +726,22 @@ Output ONLY the SQL query:"""
         generated_sql: str,
         sub_sql_list: List[Dict],
         natsql_intermediate: str,
-        examples: List[Dict]
+        examples: List[Dict],
+        gt_patterns: Dict = None  # NEW Phase 2: Ground truth patterns
     ) -> float:
-        """Calculate confidence score for decomposed generation"""
+        """
+        ENHANCED Phase 2: Calculate confidence with better weighting
+        Now matches intermediate_repr.py's 50% semantic weight for consistency
+        """
         if not examples:
             return 0.5
-        
-        # Base confidence from example similarity
+
+        # INCREASED: Base confidence from example similarity (30% → 50%)
         avg_similarity = sum(ex.get('similarity_score', 0) for ex in examples) / len(examples)
-        
-        # Check SQL validity
+
+        # SQL validity score (30%, decreased from 35%)
         sql_upper = generated_sql.upper()
-        
+
         validity_score = 0.0
         if 'SELECT' in sql_upper:
             validity_score += 0.2
@@ -633,27 +751,37 @@ Output ONLY the SQL query:"""
             validity_score += 0.25
         if any(op in sql_upper for op in ['IN (SELECT', 'NOT IN', 'EXISTS', '> (SELECT', '< (SELECT']):
             validity_score += 0.2
-        if generated_sql.strip().endswith(';'):
-            validity_score += 0.1
         if '-- Error' not in generated_sql:
-            validity_score += 0.1
-        
-        # Check sub-query generation quality
+            validity_score += 0.2
+
+        # NEW Phase 2: Ground truth pattern alignment score (10%)
+        pattern_score = 0.0
+        if gt_patterns:
+            # Check if generated SQL matches most common pattern
+            most_common = gt_patterns.get('most_common_structure', '')
+            if most_common in sql_upper:
+                pattern_score += 0.5
+
+            # Check nesting level alignment
+            gen_nesting = sql_upper.count('SELECT') - 1
+            expected_nesting = gt_patterns.get('avg_nesting_level', 1.0)
+            if abs(gen_nesting - expected_nesting) <= 0.5:
+                pattern_score += 0.5
+
+        # Sub-query quality (10%, decreased from 20%)
         sub_sql_score = 0.0
         if sub_sql_list:
             valid_subs = sum(1 for s in sub_sql_list if 'SELECT' in s['sql'].upper())
             sub_sql_score = valid_subs / len(sub_sql_list)
-        
-        # Check intermediate quality
-        intermediate_score = 0.0
-        if 'MAIN QUERY:' in natsql_intermediate or 'SELECT' in natsql_intermediate:
-            intermediate_score += 0.5
-        if 'SUBQUERY' in natsql_intermediate.upper():
-            intermediate_score += 0.5
-        
-        # Combine scores
-        confidence = (avg_similarity * 0.3) + (validity_score * 0.35) + (sub_sql_score * 0.2) + (intermediate_score * 0.15)
-        
+
+        # Combine scores: 50% semantic + 30% validity + 10% pattern + 10% sub-queries
+        confidence = (
+            avg_similarity * 0.50 +  # INCREASED from 0.30
+            validity_score * 0.30 +   # DECREASED from 0.35
+            pattern_score * 0.10 +    # NEW
+            sub_sql_score * 0.10      # DECREASED from 0.20 (intermediate removed)
+        )
+
         return min(confidence, 1.0)
     
     def _generate_reasoning(

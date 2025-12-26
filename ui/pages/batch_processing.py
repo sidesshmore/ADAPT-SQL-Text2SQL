@@ -115,9 +115,12 @@ def main():
             value="/home/smore123/ADAPT-SQL-GIT/ADAPT-SQL-Text2SQL/data/spider/spider_data/test_database"
         )
         
+        # Default vector store path (relative to project root)
+        default_vector_store = str(Path(__file__).parent.parent.parent / "vector_store")
+
         vector_store_path = st.text_input(
             "📚 Vector Store",
-            value="./vector_store"
+            value=default_vector_store
         )
         
         k_examples = st.slider("📖 Similar Examples", 1, 20, 10)

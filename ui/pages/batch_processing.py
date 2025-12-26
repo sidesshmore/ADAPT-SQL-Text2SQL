@@ -405,12 +405,13 @@ def main():
                 for r in results:
                     result = r['result']
 
-                    # Count execution matches
+                    # Count execution accuracy and exact set match
+                    # NOTE: Keys are 'execution_accuracy' and 'exact_set_match' (not execution_match/exact_match)
                     if enable_evaluation and 'step11' in result:
                         step11 = result['step11']
-                        if step11.get('execution_match', False):
+                        if step11.get('execution_accuracy', False):  # Fixed key name
                             ex_count += 1
-                        if step11.get('exact_match', False):
+                        if step11.get('exact_set_match', False):  # Fixed key name
                             em_count += 1
 
                     # Count retries

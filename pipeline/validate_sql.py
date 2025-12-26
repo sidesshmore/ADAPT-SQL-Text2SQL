@@ -27,16 +27,18 @@ class SQLValidator:
         self,
         generated_sql: str,
         pruned_schema: Dict[str, List[Dict]],
-        schema_links: Dict = None
+        schema_links: Dict = None,
+        question: str = None
     ) -> Dict:
         """
         STEP 7: Enhanced SQL Validation
-        
+
         Args:
             generated_sql: SQL query to validate
             pruned_schema: Schema from Step 1
             schema_links: Schema links from Step 1 (optional)
-            
+            question: Natural language question (optional, for ORDER BY validation)
+
         Returns:
             {
                 'is_valid': bool,
@@ -116,9 +118,15 @@ class SQLValidator:
         mistake_warnings = self._check_common_mistakes(generated_sql, pruned_schema)
         warnings.extend(mistake_warnings)
         print(f"   Common mistake warnings: {len(mistake_warnings)}")
-        
+
+        # NEW: 8. Validate ORDER BY clause
+        print("7.8: Validating ORDER BY clause...")
+        orderby_warnings = self._validate_orderby_clause(generated_sql, question)
+        warnings.extend(orderby_warnings)
+        print(f"   ORDER BY warnings: {len(orderby_warnings)}")
+
         # Generate suggestions
-        print("7.8: Generating suggestions...")
+        print("7.9: Generating suggestions...")
         suggestions = self._generate_suggestions(errors, warnings, generated_sql, pruned_schema)
         print(f"   Suggestions: {len(suggestions)}")
         
@@ -593,7 +601,73 @@ class SQLValidator:
                 })
         
         return warnings
-    
+
+    def _validate_orderby_clause(self, sql: str, question: str = None) -> List[Dict]:
+        """
+        NEW: Validate ORDER BY presence and format
+        Critical for improving EM scores
+        """
+        warnings = []
+
+        sql_upper = sql.upper()
+
+        # Check if ORDER BY is present
+        has_orderby = 'ORDER BY' in sql_upper
+
+        # Keywords that typically require ORDER BY
+        ordering_keywords = [
+            'top', 'highest', 'lowest', 'largest', 'smallest',
+            'first', 'last', 'most', 'least', 'maximum', 'minimum',
+            'best', 'worst', 'oldest', 'newest', 'earliest', 'latest'
+        ]
+
+        # Check if question suggests need for ordering
+        if question:
+            question_lower = question.lower()
+            needs_ordering = any(kw in question_lower for kw in ordering_keywords)
+
+            if needs_ordering and not has_orderby:
+                warnings.append({
+                    'type': 'ORDER_BY_MISSING',
+                    'message': f'Question contains ordering keyword but SQL lacks ORDER BY',
+                    'severity': 'HIGH',
+                    'suggestion': 'Add ORDER BY clause with explicit ASC or DESC'
+                })
+
+        # If ORDER BY is present, validate its format
+        if has_orderby:
+            # Extract ORDER BY clause
+            orderby_match = re.search(r'ORDER\s+BY\s+(.*?)(?:LIMIT|;|$)', sql_upper, re.DOTALL)
+
+            if orderby_match:
+                orderby_clause = orderby_match.group(1).strip()
+
+                # Check for explicit ASC/DESC
+                has_explicit_direction = 'ASC' in orderby_clause or 'DESC' in orderby_clause
+
+                if not has_explicit_direction:
+                    warnings.append({
+                        'type': 'ORDER_BY_FORMAT',
+                        'message': 'ORDER BY lacks explicit ASC/DESC direction',
+                        'severity': 'MEDIUM',
+                        'suggestion': 'Use explicit ASC or DESC for better EM alignment'
+                    })
+
+                # Check ORDER BY position (should come before LIMIT)
+                limit_pos = sql_upper.find('LIMIT')
+                orderby_pos = sql_upper.find('ORDER BY')
+
+                if limit_pos != -1 and orderby_pos != -1:
+                    if orderby_pos > limit_pos:
+                        warnings.append({
+                            'type': 'ORDER_BY_POSITION',
+                            'message': 'ORDER BY should come before LIMIT',
+                            'severity': 'HIGH',
+                            'suggestion': 'Reorder clauses: ... ORDER BY ... LIMIT ...'
+                        })
+
+        return warnings
+
     def _generate_suggestions(
         self, 
         errors: List[Dict], 

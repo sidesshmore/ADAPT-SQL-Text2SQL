@@ -432,7 +432,15 @@ Output ONLY the SQL query:"""
         prompt += "OUTER: [main selection]\n"
         prompt += "INNER: [subquery]\n"
         prompt += "PATTERN: [how they connect]\n\n"
-        
+
+        # NEW: Add ORDER BY specific guidance
+        prompt += "## ORDER BY Requirements (CRITICAL)\n\n"
+        prompt += "Rules:\n"
+        prompt += "1. Include ORDER BY when question asks: 'top', 'highest', 'lowest', 'largest', 'smallest', 'first', 'last', 'most', 'least'\n"
+        prompt += "2. Use explicit ASC or DESC (don't rely on defaults)\n"
+        prompt += "3. ORDER BY applies to OUTER query, not subquery (unless subquery needs it)\n"
+        prompt += "4. ORDER BY must come BEFORE LIMIT if both are present\n\n"
+
         prompt += "Generate the intermediate representation:\n"
         
         return self._generate_with_llm(
@@ -524,6 +532,10 @@ Output ONLY the SQL query:"""
         prompt += "Convert the intermediate representation into a complete SQL query.\n"
         prompt += "Integrate the sub-queries appropriately (as subqueries in WHERE, IN, comparison).\n"
         prompt += "Generate syntactically correct nested SQL.\n\n"
+        prompt += "CRITICAL Requirements:\n"
+        prompt += "1. Preserve ORDER BY clauses with explicit ASC/DESC\n"
+        prompt += "2. ORDER BY must come BEFORE LIMIT\n"
+        prompt += "3. ORDER BY typically applies to outer query, not subqueries\n\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

@@ -135,7 +135,17 @@ class FewShotGenerator:
         # Add task
         prompt += "## Your Task\n\n"
         prompt += f"Question: {question}\n\n"
-        prompt += "Generate NatSQL intermediate representation:\n"
+        prompt += "Generate NatSQL intermediate representation:\n\n"
+
+        # NEW: Add ORDER BY specific guidance
+        prompt += "## ORDER BY Requirements (CRITICAL)\n\n"
+        prompt += "Rules:\n"
+        prompt += "1. Include ORDER BY when question asks: 'top', 'highest', 'lowest', 'largest', 'smallest', 'first', 'last', 'most', 'least', 'maximum', 'minimum'\n"
+        prompt += "2. Use explicit ASC or DESC (don't rely on defaults)\n"
+        prompt += "3. If examples use ORDER BY for similar questions, you should too\n"
+        prompt += "4. ORDER BY must come BEFORE LIMIT if both are present\n\n"
+
+        prompt += "Generate NatSQL:\n"
         
         natsql = self._generate_with_llm(
             prompt,
@@ -221,7 +231,9 @@ class FewShotGenerator:
         prompt += "1. Add explicit FROM clause\n"
         prompt += "2. Convert WHERE @ JOIN to proper JOIN ON\n"
         prompt += "3. Use standard SQL syntax\n"
-        prompt += "4. Match the style of ground truth examples\n\n"
+        prompt += "4. Match the style of ground truth examples\n"
+        prompt += "5. CRITICAL: Preserve ORDER BY clauses with explicit ASC/DESC\n"
+        prompt += "6. ORDER BY must come BEFORE LIMIT\n\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

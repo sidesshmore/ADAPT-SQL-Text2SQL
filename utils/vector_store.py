@@ -193,20 +193,25 @@ class SQLVectorStore:
 # Main execution block - runs when script is executed directly
 if __name__ == "__main__":
     # Configuration
-    SPIDER_DEV_PATH = "/home/smore123/ADAPT-SQL-GIT/ADAPT-SQL-Text2SQL/data/spider/spider_data/test.json"
+    # IMPORTANT: Use TRAINING data for vector store (to retrieve examples during test evaluation)
+    # SPIDER_TRAIN_PATH = "/home/smore123/ADAPT-SQL-GIT/ADAPT-SQL-Text2SQL/data/spider/spider_data/train_spider.json"
+    SPIDER_TRAIN_PATH = "./data/spider/spider_data/train_spider.json"
     SAVE_PATH = "./vector_store"
     EMBEDDING_MODEL = "nomic-embed-text"
-    
+
     print("🚀 Building FAISS Vector Index for Spider Dataset")
     print("=" * 60)
-    print(f"Spider Dataset: {SPIDER_DEV_PATH}")
+    print(f"Spider Dataset: {SPIDER_TRAIN_PATH}")
     print(f"Save Location: {SAVE_PATH}")
     print(f"Embedding Model: {EMBEDDING_MODEL}")
     print("=" * 60)
-    
+    print("\nNOTE: Building from TRAINING data (train_spider.json)")
+    print("This is correct - you'll retrieve training examples during test evaluation")
+    print("=" * 60)
+
     # Initialize and build
     store = SQLVectorStore(embedding_model=EMBEDDING_MODEL)
-    success = store.build_index_from_spider(SPIDER_DEV_PATH, SAVE_PATH)
+    success = store.build_index_from_spider(SPIDER_TRAIN_PATH, SAVE_PATH)
     
     if success:
         print("\n✅ Index built successfully!")

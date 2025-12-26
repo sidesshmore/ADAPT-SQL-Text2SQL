@@ -89,7 +89,28 @@ pip install -r requirements.txt
 # Expected time: ~5-10 minutes
 ```
 
-### Step 6: Install Ollama Models
+### Step 6: Configure Ollama and Install Models
+
+**IMPORTANT**: First configure Ollama to use scratch directory (to avoid running out of space):
+
+```bash
+# Configure Ollama to store models in scratch directory
+# This is CRITICAL - home directory only has ~50GB, models need much more space
+export OLLAMA_MODELS=/scratch/smore123/ADAPT-SQL/ollama_models
+
+# Create the directory
+mkdir -p /scratch/smore123/ADAPT-SQL/ollama_models
+
+# Add to .bashrc to persist across sessions
+echo 'export OLLAMA_MODELS=/scratch/smore123/ADAPT-SQL/ollama_models' >> ~/.bashrc
+
+# Verify the setting
+echo "OLLAMA_MODELS is now: $OLLAMA_MODELS"
+```
+
+**Note**: Replace `smore123` with your actual NetID in the paths above.
+
+Now install the Ollama models:
 
 ```bash
 # Pull the base code generation model
@@ -107,7 +128,9 @@ ollama pull nomic-embed-text
 # Expected time: ~10-15 minutes depending on network
 ```
 
-**What this does**: Downloads pre-trained models to SOL for local inference.
+**What this does**:
+- Configures Ollama to use scratch directory (~10TB space) instead of home (~50GB)
+- Downloads pre-trained models to SOL for local inference
 
 ### Step 7: Build Vector Store (CRITICAL)
 
@@ -308,9 +331,13 @@ nvidia-smi
 ## Part 4: Fine-Tuning Pipeline
 
 **Important Note on Storage**:
-- Training checkpoints are saved to **scratch directory** (`/scratch/<netid>/ADAPT-SQL/`) instead of home directory
-- This is configured in `train_qwen.py` (line 38-39): `SCRATCH_DIR = Path("/scratch/smore123/ADAPT-SQL")`
-- **Update the NetID** in `train_qwen.py` to match your actual NetID before training!
+- **All large files use scratch directory** (`/scratch/<netid>/ADAPT-SQL/`) to avoid space issues
+- Training checkpoints: `/scratch/<netid>/ADAPT-SQL/finetuning/checkpoints/`
+  - Configured in `train_qwen.py` (line 38-39): `SCRATCH_DIR = Path("/scratch/smore123/ADAPT-SQL")`
+  - **Update the NetID** in `train_qwen.py` to match yours!
+- Ollama models: `/scratch/<netid>/ADAPT-SQL/ollama_models/`
+  - Configured via `OLLAMA_MODELS` environment variable (set in Step 6)
+  - **CRITICAL**: Must be set before using Ollama to avoid "no space left on device" errors
 - Scratch provides ~10TB space vs ~50GB in home directory
 - Files persist but may be cleaned if unused for 60+ days
 
@@ -493,6 +520,14 @@ cat Modelfile
 ### Step 21: Import Model into Ollama
 
 ```bash
+# Ensure OLLAMA_MODELS is set to scratch directory
+# (Should be set from Step 6, but verify)
+echo "OLLAMA_MODELS is: $OLLAMA_MODELS"
+# Should show: /scratch/smore123/ADAPT-SQL/ollama_models
+
+# If not set, configure it now:
+# export OLLAMA_MODELS=/scratch/smore123/ADAPT-SQL/ollama_models
+
 # Import the fine-tuned model into Ollama on SOL
 ollama create qwen3-spider-sql -f Modelfile
 
@@ -531,7 +566,10 @@ python finetuning/convert_to_ollama.py
 
 **Scratch Directory Notes**:
 - All checkpoints are saved to `/scratch/<your_netid>/ADAPT-SQL/finetuning/checkpoints/`
-- This is configured in `train_qwen.py` (line 38-39)
+- Ollama models are stored in `/scratch/<your_netid>/ADAPT-SQL/ollama_models/`
+- Configured via:
+  - `train_qwen.py` (line 38-39) - for training checkpoints
+  - `OLLAMA_MODELS` environment variable - for Ollama models
 - Scratch has more space than home directory (~10TB vs ~50GB)
 - Files in scratch are persistent but may be cleaned if unused for 60+ days
 
@@ -678,6 +716,11 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# Configure Ollama to use scratch (CRITICAL - avoid space issues)
+export OLLAMA_MODELS=/scratch/smore123/ADAPT-SQL/ollama_models  # Replace smore123 with your NetID
+mkdir -p /scratch/smore123/ADAPT-SQL/ollama_models
+echo 'export OLLAMA_MODELS=/scratch/smore123/ADAPT-SQL/ollama_models' >> ~/.bashrc
+
 # Install Ollama models
 ollama pull qwen3-coder
 ollama pull nomic-embed-text
@@ -698,6 +741,11 @@ pip install -r finetuning/requirements_finetuning.txt
 # === ON SOL ===
 cd ~/ADAPT-SQL
 source venv/bin/activate
+
+# Ensure OLLAMA_MODELS is set (should be in .bashrc from Step 6)
+# Verify with:
+echo $OLLAMA_MODELS
+# If empty, run: export OLLAMA_MODELS=/scratch/<your_netid>/ADAPT-SQL/ollama_models
 
 # Interactive UI
 streamlit run ui/app.py
@@ -724,6 +772,11 @@ python finetuning/train_qwen.py
 
 # Import fine-tuned model to Ollama on SOL
 # Note: Replace smore123 with your NetID
+
+# Ensure OLLAMA_MODELS is set (from Step 6)
+echo "OLLAMA_MODELS is: $OLLAMA_MODELS"
+# If not set: export OLLAMA_MODELS=/scratch/smore123/ADAPT-SQL/ollama_models
+
 cd /scratch/smore123/ADAPT-SQL/finetuning/checkpoints/merged_model
 cat > Modelfile << 'EOF'
 FROM ./model-00001-of-00004.safetensors
@@ -780,6 +833,29 @@ chmod +x finetuning/run_complete_pipeline.sh
 ---
 
 ## Troubleshooting
+
+### "No space left on device" (Ollama)
+```bash
+# This happens when Ollama tries to use home directory (~50GB) instead of scratch
+# Solution: Configure OLLAMA_MODELS to use scratch
+
+# Set the environment variable
+export OLLAMA_MODELS=/scratch/<your_netid>/ADAPT-SQL/ollama_models
+mkdir -p /scratch/<your_netid>/ADAPT-SQL/ollama_models
+
+# Make it permanent
+echo 'export OLLAMA_MODELS=/scratch/<your_netid>/ADAPT-SQL/ollama_models' >> ~/.bashrc
+
+# Check available space
+df -h /scratch/<your_netid>/  # Should show ~10TB
+df -h ~  # Home directory, only ~50GB
+
+# Clean up old ollama files from home (optional)
+du -sh ~/.ollama  # Check current usage
+rm -rf ~/.ollama/models  # Remove old models from home
+
+# Retry the ollama command
+```
 
 ### "No GPU detected"
 ```bash

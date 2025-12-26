@@ -132,15 +132,14 @@ class IntermediateRepresentationGenerator:
     def _analyze_ground_truth_patterns(self, examples: List[Dict]) -> Dict:
         """
         NEW: Analyze ground truth SQL patterns from examples
-        Learn common structures, JOIN orders, aggregation formats, ORDER BY patterns
+        Learn common structures, JOIN orders, aggregation formats
         """
         patterns = {
             'common_structures': [],
             'join_patterns': [],
             'aggregation_formats': [],
             'clause_orders': [],
-            'table_orderings': [],
-            'orderby_patterns': []  # NEW: Track ORDER BY patterns
+            'table_orderings': []
         }
         
         for example in examples:
@@ -173,18 +172,11 @@ class IntermediateRepresentationGenerator:
             table_order = self._extract_table_ordering(sql)
             if table_order:
                 patterns['table_orderings'].append(table_order)
-
-            # NEW: Extract ORDER BY pattern
-            if 'ORDER BY' in sql_upper:
-                orderby_info = self._extract_orderby_pattern(sql)
-                if orderby_info:
-                    patterns['orderby_patterns'].append(orderby_info)
-
+        
         # Find most common patterns
         patterns['most_common_structure'] = self._find_most_common(patterns['common_structures'])
         patterns['most_common_join'] = self._find_most_common(patterns['join_patterns'])
         patterns['most_common_agg_format'] = self._find_most_common(patterns['aggregation_formats'])
-        patterns['most_common_orderby'] = self._find_most_common(patterns['orderby_patterns'])
         
         return patterns
     
@@ -256,77 +248,20 @@ class IntermediateRepresentationGenerator:
     def _extract_table_ordering(self, sql: str) -> List[str]:
         """Extract table ordering from FROM and JOIN clauses"""
         sql_upper = sql.upper()
-
+        
         tables = []
-
+        
         # Extract FROM table
         from_match = re.search(r'FROM\s+(\w+)', sql_upper)
         if from_match:
             tables.append(from_match.group(1))
-
+        
         # Extract JOIN tables
         join_matches = re.findall(r'JOIN\s+(\w+)', sql_upper)
         tables.extend(join_matches)
-
+        
         return tables
-
-    def _extract_orderby_pattern(self, sql: str) -> str:
-        """
-        NEW: Extract ORDER BY pattern from SQL
-        Returns: String representation of ORDER BY pattern
-        Format: 'column1-ASC,column2-DESC' or 'single-DESC' etc.
-        """
-        sql_upper = sql.upper()
-
-        # Extract ORDER BY clause
-        orderby_match = re.search(r'ORDER\s+BY\s+(.*?)(?:LIMIT|;|$)', sql_upper, re.DOTALL)
-        if not orderby_match:
-            return None
-
-        orderby_clause = orderby_match.group(1).strip()
-
-        # Parse individual order specifications
-        # Format: column1 ASC, column2 DESC, etc.
-        order_items = []
-
-        # Split by comma
-        parts = orderby_clause.split(',')
-
-        for part in parts:
-            part = part.strip()
-
-            # Check for explicit ASC/DESC
-            if 'DESC' in part:
-                direction = 'DESC'
-                # Extract column (remove DESC and any table aliases)
-                col = part.replace('DESC', '').strip()
-            elif 'ASC' in part:
-                direction = 'ASC'
-                col = part.replace('ASC', '').strip()
-            else:
-                # Default is ASC
-                direction = 'ASC'
-                col = part.strip()
-
-            # Simplify column name (remove table aliases like T1., T2., etc.)
-            col = re.sub(r'\bT\d+\.', '', col)
-            col = col.strip()
-
-            if col:
-                order_items.append(f"{col}-{direction}")
-
-        if not order_items:
-            return None
-
-        # Create pattern string
-        pattern = ','.join(order_items)
-
-        # Add LIMIT indicator if present
-        if 'LIMIT' in sql_upper:
-            pattern += '+LIMIT'
-
-        return pattern
-
+    
     def _find_most_common(self, items: List) -> str:
         """Find most common item in list"""
         if not items:
@@ -380,8 +315,7 @@ Examples:
         prompt += "## Ground Truth Patterns (Learn from these)\n\n"
         prompt += f"Common Structure: {gt_patterns.get('most_common_structure', 'UNKNOWN')}\n"
         prompt += f"Common JOIN Pattern: {gt_patterns.get('most_common_join', 'UNKNOWN')}\n"
-        prompt += f"Common Aggregation Format: {gt_patterns.get('most_common_agg_format', 'UNKNOWN')}\n"
-        prompt += f"Common ORDER BY Pattern: {gt_patterns.get('most_common_orderby', 'NONE')}\n\n"
+        prompt += f"Common Aggregation Format: {gt_patterns.get('most_common_agg_format', 'UNKNOWN')}\n\n"
         
         # Add examples with NatSQL conversion
         prompt += "## Examples (SQL → NatSQL Conversion)\n\n"
@@ -404,18 +338,6 @@ Examples:
         prompt += "- Represent JOINs as: WHERE @ JOIN table.*\n"
         prompt += "- Use standard aggregations: count(), avg(), etc.\n"
         prompt += "- Follow the ground truth patterns above\n\n"
-
-        # NEW: Add ORDER BY specific guidance
-        prompt += "## ORDER BY Requirements (CRITICAL)\n\n"
-        orderby_pattern = gt_patterns.get('most_common_orderby', 'NONE')
-        if orderby_pattern != 'NONE':
-            prompt += f"Ground truth pattern uses ORDER BY: {orderby_pattern}\n"
-        prompt += "Rules:\n"
-        prompt += "1. Include ORDER BY when question asks: 'top', 'highest', 'lowest', 'largest', 'smallest', 'first', 'last', 'most', 'least', 'maximum', 'minimum'\n"
-        prompt += "2. Use explicit ASC or DESC (don't rely on defaults)\n"
-        prompt += "3. Match column format from examples\n"
-        prompt += "4. If similar examples use ORDER BY, you should too\n\n"
-
         prompt += "Generate NatSQL:\n"
         
         natsql = self._generate_with_llm(
@@ -521,8 +443,7 @@ Examples:
         prompt += "## Ground Truth Patterns to Follow\n\n"
         prompt += f"Structure: {gt_patterns.get('most_common_structure', 'UNKNOWN')}\n"
         prompt += f"JOIN Style: {gt_patterns.get('most_common_join', 'UNKNOWN')}\n"
-        prompt += f"Aggregation Style: {gt_patterns.get('most_common_agg_format', 'UNKNOWN')}\n"
-        prompt += f"ORDER BY Pattern: {gt_patterns.get('most_common_orderby', 'NONE')}\n\n"
+        prompt += f"Aggregation Style: {gt_patterns.get('most_common_agg_format', 'UNKNOWN')}\n\n"
         
         # Add schema
         prompt += "## Database Schema\n\n"

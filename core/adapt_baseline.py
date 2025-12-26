@@ -23,21 +23,21 @@ from utils.structural_similarity import enhance_example_selection
 
 class ADAPTBaseline:
     def __init__(
-        self,
+        self, 
         model: str = "qwen3-coder",
         vector_store_path: str = None,
-        max_retries: int = 3,  # NEW: Increased from 2 to 3 (Phase 3)
+        max_retries: int = 2,
         execution_timeout: int = 30,
-        enable_sql_normalization: bool = True,
+        enable_sql_normalization: bool = True,  
         enable_structural_reranking: bool = True
     ):
         """
         Initialize ADAPT-SQL with Ollama model and optional vector store
-
+        
         Args:
             model: Ollama model name (e.g., "llama3.2", "codellama", "mistral")
             vector_store_path: Path to pre-built FAISS vector store
-            max_retries: Maximum validation retry attempts (default: 3, increased for better EM)
+            max_retries: Maximum validation retry attempts (default: 2)
             execution_timeout: SQL execution timeout in seconds (default: 30)
         """
         self.model = model

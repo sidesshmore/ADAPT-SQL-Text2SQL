@@ -290,9 +290,10 @@ class Text2SQLEvaluator:
             gold_components['group_by']
         )
         
-        # ORDER BY clause (NEW: List comparison to preserve order and direction)
-        component_match['ORDER_BY'] = (
-            gen_components['order_by'] == gold_components['order_by']
+        # ORDER BY clause
+        component_match['ORDER_BY'] = self._sets_equal(
+            gen_components['order_by'],
+            gold_components['order_by']
         )
         
         # HAVING clause
@@ -372,15 +373,15 @@ class Text2SQLEvaluator:
             cols = [c.strip() for c in group_clause.split(',')]
             components['group_by'] = set(self._normalize_items(cols))
         
-        # Extract ORDER BY (NEW: Preserve order and direction)
+        # Extract ORDER BY
         order_match = re.search(
-            r'ORDER\s+BY\s+(.*?)(?:\s+LIMIT|$)',
+            r'ORDER\s+BY\s+(.*?)(?:\s+LIMIT|$)', 
             sql_normalized
         )
         if order_match:
             order_clause = order_match.group(1)
-            # NEW: Extract as list to preserve order, with ASC/DESC direction
-            components['order_by'] = self._extract_orderby_enhanced(order_clause)
+            cols = [c.strip() for c in order_clause.split(',')]
+            components['order_by'] = set(self._normalize_items(cols))
         
         # Extract HAVING
         having_match = re.search(
@@ -426,40 +427,7 @@ class Text2SQLEvaluator:
         # Keep only conditions (not AND/OR keywords)
         conds = [c.strip() for c in conds if c.strip() not in ('AND', 'OR')]
         return self._normalize_items(conds)
-
-    def _extract_orderby_enhanced(self, order_clause: str) -> List[Tuple[str, str]]:
-        """
-        NEW Phase 4: Extract ORDER BY with direction preserved
-        Returns: [(column, direction), ...] where direction is 'ASC' or 'DESC'
-        Preserves ORDER to correctly evaluate ORDER BY clauses
-        """
-        orderby_items = []
-
-        # Split by comma to handle multiple ORDER BY columns
-        parts = [p.strip() for p in order_clause.split(',')]
-
-        for part in parts:
-            # Extract column and direction
-            if 'DESC' in part:
-                direction = 'DESC'
-                col = part.replace('DESC', '').strip()
-            elif 'ASC' in part:
-                direction = 'ASC'
-                col = part.replace('ASC', '').strip()
-            else:
-                # Default is ASC if not specified
-                direction = 'ASC'
-                col = part.strip()
-
-            # Normalize column (remove table aliases like T1., T2., etc.)
-            col = re.sub(r'\b[Tt]\d+\.', '', col)
-            col = col.strip()
-
-            if col:
-                orderby_items.append((col, direction))
-
-        return orderby_items
-
+    
     def _sets_equal(self, set1: Set, set2: Set) -> bool:
         """Compare two sets for equality"""
         # Empty sets are equal

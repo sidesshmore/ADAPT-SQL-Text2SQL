@@ -418,73 +418,104 @@ python finetuning/train_qwen.py
 
 ---
 
-## Part 5: Deploy Fine-Tuned Model
+## Part 5: Deploy Fine-Tuned Model on SOL
 
-### Step 19: Transfer Model to Local Machine
+### Step 19: Verify Fine-Tuned Model Checkpoints
 
 ```bash
-# On YOUR LOCAL MACHINE (not on SOL):
+# Make sure you're still on SOL GPU node
+cd ~/ADAPT-SQL
 
-# Create checkpoints directory
-mkdir -p finetuning/checkpoints
+# Check that training completed successfully
+ls -lh finetuning/checkpoints/merged_model/
 
-# Transfer the merged model (~14GB)
-scp -r <your_netid>@sol.asu.edu:~/ADAPT-SQL/finetuning/checkpoints/merged_model ./finetuning/checkpoints/
-
-# Expected time: 20-30 minutes depending on network
-# Progress will show:
-# adapter_config.json           100%  234    23.4KB/s   00:00
-# config.json                   100% 1.2KB  120.3KB/s   00:00
-# model-00001-of-00004.safetensors  25%  3.5GB  15.2MB/s   08:12 ETA
+# Should show:
+# config.json
+# generation_config.json
+# model-00001-of-00004.safetensors
+# model-00002-of-00004.safetensors
+# model-00003-of-00004.safetensors
+# model-00004-of-00004.safetensors
+# tokenizer.json
+# tokenizer_config.json
 # ...
+
+# Total size should be ~14GB
 ```
 
-### Step 20: Convert to Ollama Format (Local Machine)
+### Step 20: Create Modelfile for Ollama
 
 ```bash
-# On YOUR LOCAL MACHINE
-cd ADAPT-SQL
+# Create a Modelfile to import the fine-tuned model into Ollama
+cd ~/ADAPT-SQL/finetuning/checkpoints/merged_model
 
-# Activate your local baseline venv
-source venv/bin/activate
+# Create Modelfile
+cat > Modelfile << 'EOF'
+FROM ./model-00001-of-00004.safetensors
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+SYSTEM """You are an expert SQL generator. Generate SQL queries based on natural language questions and database schemas. Only output the SQL query without explanations."""
+EOF
 
-# Make sure Ollama is installed
-which ollama
-# If not: brew install ollama (macOS) or see https://ollama.ai
+# Verify Modelfile created
+cat Modelfile
+```
 
-# Run conversion script
-python finetuning/convert_to_ollama.py
+### Step 21: Import Model into Ollama
+
+```bash
+# Import the fine-tuned model into Ollama on SOL
+ollama create qwen3-spider-sql -f Modelfile
 
 # Expected output:
-# Loading model from finetuning/checkpoints/merged_model...
-# Creating Modelfile...
-# Importing to Ollama as 'qwen3-spider-sql'...
-# Success! Model available as: qwen3-spider-sql
+# transferring model data
+# using existing layer sha256:xxxxx
+# creating new layer sha256:yyyyy
+# writing manifest
+# success
 
-# Expected time: 5 minutes
+# Verify model is available
+ollama list
+
+# Should show:
+# NAME                    ID              SIZE      MODIFIED
+# qwen3-spider-sql       xxxxx           14 GB     X seconds ago
+# qwen3-coder            yyyyy           7 GB      X hours ago
+# nomic-embed-text       zzzzz           274 MB    X hours ago
+
+# Expected time: 5-10 minutes
 ```
 
-**What this creates**:
-- Ollama model named `qwen3-spider-sql`
-- Available system-wide via `ollama run qwen3-spider-sql`
+**Note**: If the Modelfile approach doesn't work with safetensors, you may need to use the conversion script:
 
-### Step 21: Test Fine-Tuned Model
+```bash
+# Alternative: Use conversion script on SOL
+cd ~/ADAPT-SQL
+source venv/bin/activate
+
+python finetuning/convert_to_ollama.py
+
+# This will create the Ollama model automatically
+```
+
+### Step 22: Test Fine-Tuned Model on SOL
 
 ```bash
 # Quick interactive test
 ollama run qwen3-spider-sql
 
 # In the Ollama prompt, try:
->>> Generate SQL: Show all students
-# Should respond with SQL
+>>> Generate SQL for: How many singers are there?
 
-# Exit with /bye
+Schema:
+table singer: singer_id (INTEGER), name (TEXT), age (INTEGER)
+
+# Should respond with: SELECT COUNT(*) FROM singer
+# Exit with /bye or Ctrl+D
 
 # Test via Python
-python
-```
-
-```python
+python << 'PYEOF'
 import ollama
 
 response = ollama.chat(
@@ -499,31 +530,62 @@ table singer: singer_id (INTEGER), name (TEXT), age (INTEGER)'''
 )
 
 print(response['message']['content'])
-# Expected: SELECT COUNT(*) FROM singer
+PYEOF
+
+# Expected output: SELECT COUNT(*) FROM singer
 ```
 
 ---
 
-## Part 6: Evaluate Fine-Tuned Model
+## Part 6: Evaluate Fine-Tuned Model on SOL
 
-### Step 22: Run Batch Evaluation with Fine-Tuned Model
+### Step 23: Setup SSH Tunnel for Streamlit UI
+
+Since you'll be running Streamlit on SOL, you need to access it from your local browser.
 
 ```bash
+# On YOUR LOCAL MACHINE, open a new terminal and run:
+ssh -L 8501:localhost:8501 <your_netid>@sol.asu.edu
+
+# This creates a tunnel from your local port 8501 to SOL's port 8501
+# Keep this terminal open while using the UI
+```
+
+### Step 24: Run Batch Evaluation with Fine-Tuned Model
+
+```bash
+# On SOL GPU node (or login node if evaluation doesn't need GPU)
+cd ~/ADAPT-SQL
+source venv/bin/activate
+
 # Start batch processing UI
 streamlit run ui/pages/batch_processing.py
+
+# Expected output:
+#   You can now view your Streamlit app in your browser.
+#   Local URL: http://localhost:8501
+#   Network URL: http://10.x.x.x:8501
 ```
+
+**Access the UI**:
+1. Open your local browser to `http://localhost:8501` (using the SSH tunnel)
+2. The Streamlit interface should load
 
 **In the UI**:
 1. Click "Load Dataset" → Select `data/spider/dev.json`
 2. **Model**: Select `qwen3-spider-sql` (your fine-tuned model)
-3. Number of examples: 1034 (full dev set)
+3. Number of examples:
+   - Start with 50-100 for quick test
+   - Then run full 1,034 for complete evaluation
 4. Enable all options:
    - ✓ Enable Structural Reranking
    - ✓ Enable Normalization
    - ✓ Enable Retry on Validation Failure
 5. Click "Run Batch Processing"
 
-**Expected time**: 2-3 hours for 1,034 examples
+**Expected time**:
+- 50 examples: ~15-20 minutes
+- 1,034 examples (full dev set): 2-3 hours
 
 **Expected results**:
 - Execution Accuracy (EX): 93-95% (↑1-3% from baseline)
@@ -531,15 +593,21 @@ streamlit run ui/pages/batch_processing.py
 - Reduced retry counts
 - Better handling of complex queries
 
-### Step 23: Compare Baseline vs Fine-Tuned
+**Results will be saved to**: `~/ADAPT-SQL/RESULTS/batch_results_<timestamp>.csv`
+
+### Step 25: Compare Baseline vs Fine-Tuned
 
 ```bash
-# Use multi-model comparison UI
+# Stop the previous Streamlit (Ctrl+C)
+
+# Start multi-model comparison UI
 streamlit run ui/pages/multimodel.py
+
+# Access at http://localhost:8501 (via SSH tunnel)
 ```
 
 **In the UI**:
-1. Select databases to test
+1. Select databases to test (e.g., "concert_singer", "student_transcript")
 2. Enter test questions
 3. Compare outputs from:
    - Model 1: `qwen3-coder` (baseline)
@@ -548,6 +616,7 @@ streamlit run ui/pages/multimodel.py
    - Generated SQL quality
    - Retry attempts needed
    - Execution success rate
+   - Response time
 
 ---
 
@@ -604,7 +673,7 @@ streamlit run ui/pages/batch_processing.py
 streamlit run ui/pages/multimodel.py
 ```
 
-### Fine-Tuning Pipeline
+### Fine-Tuning Pipeline (All on SOL)
 
 ```bash
 # === ON SOL ===
@@ -617,20 +686,33 @@ python finetuning/prepare_training_data.py
 # Train (6-8 hours)
 python finetuning/train_qwen.py
 
-# === ON LOCAL MACHINE ===
-# Transfer model
-scp -r <netid>@sol.asu.edu:~/ADAPT-SQL/finetuning/checkpoints/merged_model ./finetuning/checkpoints/
+# Import fine-tuned model to Ollama on SOL
+cd ~/ADAPT-SQL/finetuning/checkpoints/merged_model
+cat > Modelfile << 'EOF'
+FROM ./model-00001-of-00004.safetensors
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+SYSTEM """You are an expert SQL generator."""
+EOF
 
-# Convert to Ollama
-cd ADAPT-SQL
-source venv/bin/activate
-python finetuning/convert_to_ollama.py
+ollama create qwen3-spider-sql -f Modelfile
 
-# Test
+# Or use the conversion script:
+# cd ~/ADAPT-SQL && source venv/bin/activate && python finetuning/convert_to_ollama.py
+
+# Test fine-tuned model
 ollama run qwen3-spider-sql
 
-# Evaluate
+# === ON LOCAL MACHINE (for accessing Streamlit) ===
+# Setup SSH tunnel
+ssh -L 8501:localhost:8501 <netid>@sol.asu.edu
+
+# === BACK ON SOL ===
+# Evaluate fine-tuned model
+cd ~/ADAPT-SQL
+source venv/bin/activate
 streamlit run ui/pages/batch_processing.py
+# Then open http://localhost:8501 in your local browser
 # Select model: qwen3-spider-sql
 ```
 
@@ -719,10 +801,54 @@ MAX_STEPS = 100  # Add this line
 | Install fine-tuning deps | 20 mins | SOL |
 | Prepare training data | 10 mins | SOL |
 | **Fine-tune model** | **6-8 hours** | **SOL** |
-| Transfer model to local | 30 mins | Local |
-| Convert to Ollama | 5 mins | Local |
-| Evaluate fine-tuned model | 2-3 hours | Local |
-| **TOTAL** | **~10-13 hours** | - |
+| Import model to Ollama on SOL | 10 mins | SOL |
+| Test fine-tuned model | 5 mins | SOL |
+| Evaluate fine-tuned model | 2-3 hours | SOL |
+| **TOTAL** | **~9-12 hours** | **SOL** |
+
+---
+
+## Accessing Results from SOL
+
+Since all processing happens on SOL, you'll need to transfer result files to view them locally:
+
+```bash
+# On YOUR LOCAL MACHINE
+# Transfer results files
+scp <netid>@sol.asu.edu:~/ADAPT-SQL/RESULTS/batch_results_*.csv ./RESULTS/
+scp <netid>@sol.asu.edu:~/ADAPT-SQL/RESULTS/batch_results_*.pdf ./RESULTS/
+
+# Or transfer entire results directory
+scp -r <netid>@sol.asu.edu:~/ADAPT-SQL/RESULTS ./
+
+# View CSV files locally
+# open RESULTS/batch_results_<timestamp>.csv  # macOS
+# Or use Excel, LibreOffice, etc.
+```
+
+Alternatively, you can analyze results directly on SOL:
+
+```bash
+# On SOL
+cd ~/ADAPT-SQL/RESULTS
+
+# View CSV in terminal
+column -t -s, batch_results_*.csv | less -S
+
+# Or use Python for analysis
+python << 'PYEOF'
+import pandas as pd
+
+# Load latest results
+df = pd.read_csv('batch_results_<timestamp>.csv')
+
+# Summary statistics
+print(df['execution_match'].value_counts())
+print(df['exact_match'].value_counts())
+print(f"Execution Accuracy: {df['execution_match'].mean():.2%}")
+print(f"Exact Match: {df['exact_match'].mean():.2%}")
+PYEOF
+```
 
 ---
 

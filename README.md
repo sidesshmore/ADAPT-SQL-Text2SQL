@@ -323,7 +323,7 @@ If you use ADAPT-SQL in your research, please cite:
   title = {ADAPT-SQL: Adaptive Decomposed And Pipeline-driven Text-to-SQL},
   author = {More, Sidessh},
   year = {2026},
-  url = {https://github.com/yourusername/adapt-sql}
+  url = {https://github.com/sidesshmore/ADAPT-SQL-Text2SQL}
 }
 ```
 

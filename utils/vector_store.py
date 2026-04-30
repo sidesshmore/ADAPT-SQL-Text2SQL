@@ -64,56 +64,74 @@ class SQLVectorStore:
             print(f"   Loaded {len(data)} examples")
             
             # Get embeddings for all questions
-            print("🔄 Generating embeddings...")
+            total = len(data)
+            print(f"🔄 Generating embeddings for {total} examples...")
             embeddings = []
             valid_examples = []
-            
+            errors = 0
+            embed_start = time.time()
+
             for i, example in enumerate(data):
-                if (i + 1) % 10 == 0:
-                    print(f"   Progress: {i + 1}/{len(data)}", flush=True)
-                
                 question = example.get('question', '')
                 if not question:
                     continue
-                
+
                 embedding = self._get_embedding(question)
                 if embedding is not None:
                     embeddings.append(embedding)
                     valid_examples.append(example)
-            
+                else:
+                    errors += 1
+
+                done = i + 1
+                if done % 10 == 0 or done == total:
+                    elapsed = time.time() - embed_start
+                    rate = done / elapsed if elapsed > 0 else 0
+                    eta = (total - done) / rate if rate > 0 else 0
+                    pct = done / total * 100
+                    print(
+                        f"   [{done:4d}/{total}] {pct:5.1f}%  "
+                        f"elapsed {elapsed:6.1f}s  "
+                        f"rate {rate:.1f}/s  "
+                        f"ETA {eta:5.0f}s  "
+                        f"errors {errors}",
+                        flush=True
+                    )
+
             if not embeddings:
                 print("❌ No valid embeddings generated")
                 return False
-            
+
+            total_embed_time = time.time() - embed_start
+            print(f"   Done — {len(embeddings)} embeddings in {total_embed_time:.1f}s ({errors} skipped)")
+
             # Convert to numpy array
+            t0 = time.time()
             embeddings_matrix = np.vstack(embeddings)
             self.dimension = embeddings_matrix.shape[1]
-            
-            print(f"   Generated {len(embeddings)} embeddings (dim: {self.dimension})")
-            
+            print(f"   Stacked matrix {embeddings_matrix.shape} in {time.time()-t0:.1f}s")
+
             # Build FAISS index
-            print("🔨 Building FAISS index...")
+            print("🔨 Building FAISS index...", flush=True)
+            t0 = time.time()
             self.index = faiss.IndexFlatIP(self.dimension)  # Inner product for cosine similarity
-            
-            # Normalize vectors for cosine similarity
             faiss.normalize_L2(embeddings_matrix)
             self.index.add(embeddings_matrix)
-            
+            print(f"   Index built in {time.time()-t0:.1f}s")
+
             self.examples = valid_examples
-            
+
             # Save index and examples
-            print(f"💾 Saving to {save_path}...")
+            print(f"💾 Saving to {save_path}...", flush=True)
+            t0 = time.time()
             save_dir = Path(save_path)
             save_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Save FAISS index
+
             faiss.write_index(self.index, str(save_dir / "faiss.index"))
-            
-            # Save examples
+
             with open(save_dir / "examples.json", 'w', encoding='utf-8') as f:
                 json.dump(self.examples, f, indent=2)
-            
-            # Save metadata
+
             metadata = {
                 'dimension': self.dimension,
                 'num_examples': len(self.examples),
@@ -121,6 +139,7 @@ class SQLVectorStore:
             }
             with open(save_dir / "metadata.json", 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2)
+            print(f"   Saved in {time.time()-t0:.1f}s")
             
             print("✅ Index built and saved successfully!")
             return True

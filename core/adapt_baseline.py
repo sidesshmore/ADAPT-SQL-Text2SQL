@@ -4,8 +4,24 @@ Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing +
 Generation + Validation + Retry + Execute + Evaluate
 """
 import os
-import ollama
+import ollama as _ollama_module
 from typing import Dict, List
+
+# Patch ollama module-level functions to read OLLAMA_HOST at call time.
+# This is needed because ollama binds its default client at import time,
+# so setting OLLAMA_HOST after import has no effect without this patch.
+def _patched_chat(**kwargs):
+    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    return _ollama_module.Client(host=host).chat(**kwargs)
+
+def _patched_embeddings(**kwargs):
+    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    return _ollama_module.Client(host=host).embeddings(**kwargs)
+
+_ollama_module.chat = _patched_chat
+_ollama_module.embeddings = _patched_embeddings
+
+import ollama
 from pipeline.schema_linking import EnhancedSchemaLinker
 from pipeline.query_complexity import QueryComplexityClassifier, ComplexityClass
 from pipeline.prel_sql_prediction import PreliminaryPredictor
@@ -44,13 +60,8 @@ class ADAPTBaseline:
             execution_timeout: SQL execution timeout in seconds (default: 30)
             ollama_host: Ollama server URL (e.g., "http://127.0.0.1:11437")
         """
-        # Configure Ollama host before anything else so all modules use the right server
         host = ollama_host or os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
         os.environ["OLLAMA_HOST"] = host
-        try:
-            ollama._client = ollama.Client(host=host)
-        except Exception:
-            pass
 
         self.model = model
         self.max_retries = max_retries

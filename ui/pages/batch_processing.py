@@ -278,7 +278,7 @@ def main():
         
         # Initialize ADAPT
         with st.spinner("Initializing ADAPT-SQL pipeline..."):
-            adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
+            adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path, ollama_host=ollama_host)
         
         # Initialize retry engine if needed
         retry_engine = None

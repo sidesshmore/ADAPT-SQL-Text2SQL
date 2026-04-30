@@ -208,7 +208,7 @@ def main():
             foreign_keys = get_foreign_keys_from_sqlite(str(db_path))
             
             # Initialize ADAPT baseline
-            adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
+            adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path, ollama_host=ollama_host)
             
             gold_sql = example.get('query', None)
             

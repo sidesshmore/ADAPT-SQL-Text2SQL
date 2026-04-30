@@ -1,8 +1,10 @@
 """
 ADAPT-SQL Baseline - Complete Pipeline (Steps 1-11)
-Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing + 
+Schema Linking + Complexity + Preliminary SQL + Example Selection + Routing +
 Generation + Validation + Retry + Execute + Evaluate
 """
+import os
+import ollama
 from typing import Dict, List
 from pipeline.schema_linking import EnhancedSchemaLinker
 from pipeline.query_complexity import QueryComplexityClassifier, ComplexityClass
@@ -23,23 +25,33 @@ from utils.structural_similarity import enhance_example_selection
 
 class ADAPTBaseline:
     def __init__(
-        self, 
+        self,
         model: str = "qwen3-coder",
         vector_store_path: str = None,
         max_retries: int = 2,
         execution_timeout: int = 30,
-        enable_sql_normalization: bool = True,  
-        enable_structural_reranking: bool = True
+        enable_sql_normalization: bool = True,
+        enable_structural_reranking: bool = True,
+        ollama_host: str = None
     ):
         """
         Initialize ADAPT-SQL with Ollama model and optional vector store
-        
+
         Args:
             model: Ollama model name (e.g., "llama3.2", "codellama", "mistral")
             vector_store_path: Path to pre-built FAISS vector store
             max_retries: Maximum validation retry attempts (default: 2)
             execution_timeout: SQL execution timeout in seconds (default: 30)
+            ollama_host: Ollama server URL (e.g., "http://127.0.0.1:11437")
         """
+        # Configure Ollama host before anything else so all modules use the right server
+        host = ollama_host or os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+        os.environ["OLLAMA_HOST"] = host
+        try:
+            ollama._client = ollama.Client(host=host)
+        except Exception:
+            pass
+
         self.model = model
         self.max_retries = max_retries
         self.execution_timeout = execution_timeout

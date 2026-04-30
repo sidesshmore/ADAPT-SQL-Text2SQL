@@ -376,11 +376,12 @@ Provide concise analysis:"""
                         'content': 'You are a database schema analyzer. Use pre-filter hints as guidance, but critically evaluate each element. Identify ONLY the minimum required schema elements.'
                     },
                     {'role': 'user', 'content': prompt}
-                ]
+                ],
+                options={'temperature': 0}
             )
-            
+
             return response['message']['content']
-            
+
         except Exception as e:
             return f"Error: {str(e)}"
     

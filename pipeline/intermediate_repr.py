@@ -378,15 +378,24 @@ Examples:
             join_tables = re.findall(r'JOIN\s+(\w+)', sql_upper)
             if join_tables:
                 natsql += f" WHERE @ JOIN {join_tables[0]}.*"
-        
-        # Add WHERE conditions (if no JOIN)
-        elif 'WHERE' in sql_upper:
-            where_match = re.search(r'WHERE\s+(.*?)(?:GROUP|ORDER|LIMIT|$)', sql_upper, re.DOTALL)
-            if where_match:
-                where_clause = where_match.group(1).strip()
-                # Simplify WHERE clause
-                where_clause = re.sub(r'\bT\d+\.', '', where_clause, flags=re.IGNORECASE)
-                natsql += f" WHERE {where_clause}"
+
+        # Add WHERE filter conditions — always, even when JOIN is present
+        where_match = re.search(r'WHERE\s+(.*?)(?:GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT|$)', sql, re.DOTALL | re.IGNORECASE)
+        if where_match:
+            where_clause = where_match.group(1).strip()
+            # Strip alias-based join predicates (T1.col = T2.col) — these are JOIN plumbing, not filters
+            where_clause = re.sub(r'\bT\d+\.\w+\s*=\s*T\d+\.\w+\s*(?:AND\s*)?', '', where_clause, flags=re.IGNORECASE)
+            # Strip table-qualified join predicates (table1.col = table2.col)
+            where_clause = re.sub(r'\b\w+\.\w+\s*=\s*\w+\.\w+\s*(?:AND\s*)?', '', where_clause, flags=re.IGNORECASE)
+            # Clean dangling AND/OR
+            where_clause = re.sub(r'^\s*(AND|OR)\s+', '', where_clause.strip(), flags=re.IGNORECASE)
+            where_clause = re.sub(r'\s+(AND|OR)\s*$', '', where_clause.strip(), flags=re.IGNORECASE)
+            where_clause = re.sub(r'\bT\d+\.', '', where_clause, flags=re.IGNORECASE).strip()
+            if where_clause:
+                if 'JOIN' in sql_upper:
+                    natsql += f" AND {where_clause}"
+                else:
+                    natsql += f" WHERE {where_clause}"
         
         return natsql
     

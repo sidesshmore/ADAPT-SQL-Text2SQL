@@ -21,7 +21,7 @@ def _get_ollama_client():
     if not host:
         return None
     if host not in _ollama_client_cache:
-        _ollama_client_cache[host] = ollama.Client(host=host)
+        _ollama_client_cache[host] = ollama.Client(host=host, timeout=30)
     return _ollama_client_cache[host]
 
 

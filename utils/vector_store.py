@@ -3,11 +3,24 @@ Vector Store for SQL Examples using Nomic Embeddings and FAISS
 Can be run directly to build the index: python vector_store.py
 """
 import json
+import os
 import numpy as np
 import faiss
 import ollama
 from pathlib import Path
 from typing import List, Dict, Optional
+
+# Read OLLAMA_HOST dynamically at call time (same fix as adapt_baseline.py).
+# The ollama library binds its default client at import time, so setting
+# OLLAMA_HOST after import has no effect without this patch.
+_ollama_embeddings_orig = ollama.embeddings
+def _patched_embeddings(*args, **kwargs):
+    host = os.environ.get("OLLAMA_HOST", "")
+    if host:
+        client = ollama.Client(host=host)
+        return client.embeddings(*args, **kwargs)
+    return _ollama_embeddings_orig(*args, **kwargs)
+ollama.embeddings = _patched_embeddings
 
 
 class SQLVectorStore:
@@ -17,7 +30,7 @@ class SQLVectorStore:
         self.index = None
         self.examples = []
         self.dimension = None
-        
+
     def _get_embedding(self, text: str) -> np.ndarray:
         """Get embedding vector for text using Nomic"""
         try:
@@ -50,8 +63,8 @@ class SQLVectorStore:
             valid_examples = []
             
             for i, example in enumerate(data):
-                if (i + 1) % 100 == 0:
-                    print(f"   Progress: {i + 1}/{len(data)}")
+                if (i + 1) % 10 == 0:
+                    print(f"   Progress: {i + 1}/{len(data)}", flush=True)
                 
                 question = example.get('question', '')
                 if not question:

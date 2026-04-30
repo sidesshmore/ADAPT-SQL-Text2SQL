@@ -104,6 +104,10 @@ def main():
         st.header("⚙️ Configuration")
         
         model = st.selectbox("🤖 Model", ["gemma4", "qwen3-coder", "llama3.2", "codellama", "mistral", "qwen2.5"])
+
+        ollama_host = st.text_input("🔌 Ollama Host", value="http://127.0.0.1:11437")
+        import os
+        os.environ["OLLAMA_HOST"] = ollama_host
         
         spider_json_path = st.text_input(
             "📄 Spider dev.json",

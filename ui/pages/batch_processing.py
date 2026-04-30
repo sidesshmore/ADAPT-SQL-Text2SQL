@@ -103,7 +103,7 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        model = st.selectbox("🤖 Model", ["gemma4", "qwen3-coder", "llama3.2", "codellama", "mistral", "qwen2.5"])
+        model = st.selectbox("🤖 Model", ["qwen3:6b", "qwen3-coder", "gemma4", "llama3.2", "codellama", "mistral", "qwen2.5"])
 
         ollama_host = st.text_input("🔌 Ollama Host", value="http://127.0.0.1:11437")
         import os

@@ -27,9 +27,10 @@ st.set_page_config(
 
 # Available models
 AVAILABLE_MODELS = [
-    "llama3.2",
+    "qwen3:6b",
     "qwen3-coder",
-    "gemma3",
+    "llama3.2",
+    "gemma4",
     "codellama",
     "deepseek-r1:1.5b"
 ]

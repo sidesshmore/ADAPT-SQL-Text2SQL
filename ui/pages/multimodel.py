@@ -27,7 +27,7 @@ st.set_page_config(
 
 # Available models
 AVAILABLE_MODELS = [
-    "qwen3:6b",
+    "qwen3.6:latest",
     "qwen3-coder",
     "llama3.2",
     "gemma4",

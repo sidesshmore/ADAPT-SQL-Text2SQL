@@ -61,33 +61,67 @@ class DecomposedGenerator:
         sub_questions: List[str]
     ) -> str:
         """
-        NEW: Identify which nested query pattern to use
-        Returns pattern key from self.nested_templates
+        Identify which nested query pattern to use.
+        Uses keyword rules first; falls back to LLM when no rule fires.
+        Returns pattern key from self.nested_templates.
         """
         question_lower = question.lower()
-        
-        # Pattern 1: "more/less than average" → COMPARISON_WITH_AGG
+
+        # Rule 1: "more/less than average" → COMPARISON_WITH_AGG
         if any(phrase in question_lower for phrase in [
-            'more than average', 'less than average', 
+            'more than average', 'less than average',
             'greater than average', 'higher than average',
             'above average', 'below average'
         ]):
             return 'COMPARISON_WITH_AGG'
-        
-        # Pattern 2: "except", "but not", "exclude" → EXCEPT or NOT_IN_SELECT
+
+        # Rule 2: explicit set-difference phrases → NOT_IN_SELECT
         if any(phrase in question_lower for phrase in ['except', 'but not', 'exclude', 'not in']):
             return 'NOT_IN_SELECT'
-        
-        # Pattern 3: "that have", "who have", "with" → EXISTS or IN_SELECT
+
+        # Rule 3: existence phrases → IN_SELECT
         if any(phrase in question_lower for phrase in ['that have', 'who have', 'that had']):
             return 'IN_SELECT'
-        
-        # Pattern 4: "does not have", "without" → NOT_IN_SELECT or NOT EXISTS
-        if any(phrase in question_lower for phrase in ['does not have', 'without', 'no']):
+
+        # Rule 4: absence phrases → NOT_IN_SELECT
+        if any(phrase in question_lower for phrase in ['does not have', 'without', 'never']):
             return 'NOT_IN_SELECT'
-        
-        # Default: IN_SELECT (most common)
-        return 'IN_SELECT'
+
+        # No rule fired — ask LLM to classify
+        return self._identify_nested_pattern_with_llm(question, sub_questions)
+
+    def _identify_nested_pattern_with_llm(self, question: str, sub_questions: List[str]) -> str:
+        """LLM-based fallback for nested pattern classification."""
+        sub_q_text = '\n'.join(f"  {i+1}. {q}" for i, q in enumerate(sub_questions))
+        prompt = f"""You are classifying a SQL nested query pattern.
+
+Question: {question}
+Sub-questions:
+{sub_q_text}
+
+Choose the SINGLE best pattern:
+- IN_SELECT: value must appear in a subquery result (e.g., "students who took course X")
+- NOT_IN_SELECT: value must NOT appear in a subquery result (e.g., "students who never took X")
+- EXISTS_SELECT: check if a related row exists (e.g., "departments that have any manager")
+- COMPARISON_WITH_AGG: compare against an aggregate (e.g., "salary above the average")
+- EXCEPT: set difference between two groups (e.g., "all cities except capitals")
+
+Reply with ONLY the pattern name, nothing else."""
+
+        try:
+            response = ollama.chat(
+                model=self.model,
+                messages=[{'role': 'user', 'content': prompt}]
+            )
+            answer = response['message']['content'].strip().upper()
+            valid = {'IN_SELECT', 'NOT_IN_SELECT', 'EXISTS_SELECT', 'COMPARISON_WITH_AGG', 'EXCEPT'}
+            for pattern in valid:
+                if pattern in answer:
+                    return pattern
+        except Exception:
+            pass
+
+        return 'IN_SELECT'  # safe default
 
     
     def generate_sql_decomposed(

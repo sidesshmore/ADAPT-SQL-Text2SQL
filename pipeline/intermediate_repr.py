@@ -488,11 +488,17 @@ Examples:
         Apply structure normalization based on ground truth patterns
         """
         # 1. Remove verbose aggregation aliases if ground truth uses NO_ALIAS
+        # Guard: never strip aliases from queries with subqueries or UNION — aliases
+        # may be semantically required there (e.g., referencing alias in outer query).
         if gt_patterns.get('most_common_agg_format') == 'NO_ALIAS':
-            for agg in self.agg_functions:
-                # Remove patterns like: COUNT(*) AS total_count → COUNT(*)
-                pattern = rf'({agg}\s*\([^)]+\))\s+AS\s+\w+'
-                sql = re.sub(pattern, r'\1', sql, flags=re.IGNORECASE)
+            sql_upper = sql.upper()
+            has_subquery = sql_upper.count('SELECT') > 1
+            has_union = 'UNION' in sql_upper
+            if not has_subquery and not has_union:
+                for agg in self.agg_functions:
+                    # Remove patterns like: COUNT(*) AS total_count → COUNT(*)
+                    pattern = rf'({agg}\s*\([^)]+\))\s+AS\s+\w+'
+                    sql = re.sub(pattern, r'\1', sql, flags=re.IGNORECASE)
         
         # 2. Normalize whitespace
         sql = re.sub(r'\s+', ' ', sql)

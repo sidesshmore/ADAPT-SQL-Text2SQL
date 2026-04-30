@@ -192,8 +192,9 @@ class SQLVectorStore:
 
 # Main execution block - runs when script is executed directly
 if __name__ == "__main__":
-    # Configuration
-    SPIDER_DEV_PATH = "/Users/sidessh/ADAPT-SQL/data/spider/dev.json"
+    # Configuration — path relative to project root so this works on any machine
+    _script_dir = Path(__file__).parent.parent
+    SPIDER_DEV_PATH = str(_script_dir / "data" / "spider" / "dev.json")
     SAVE_PATH = "./vector_store"
     EMBEDDING_MODEL = "nomic-embed-text"
     

@@ -14,7 +14,7 @@ from typing import Dict, List
 
 
 class ValidationFeedbackRetry:
-    def __init__(self, model: str = "qwen3-coder", max_retries: int = 2):
+    def __init__(self, model: str = "qwen3-coder", max_retries: int = 3):
         """
         Initialize validation feedback retry system
         
@@ -80,6 +80,7 @@ class ValidationFeedbackRetry:
         
         # Initialize retry loop
         current_sql = generated_sql
+        all_sqls = [generated_sql]
         validation_history = [validation_result]
         improvements = []
         retry_count = 0
@@ -147,6 +148,7 @@ class ValidationFeedbackRetry:
             
             # Update current SQL
             current_sql = corrected_sql
+            all_sqls.append(corrected_sql)
             
             # Check if valid now
             if new_validation['is_valid']:
@@ -187,23 +189,20 @@ class ValidationFeedbackRetry:
         # Max retries reached without success
         print(f"\n⚠️  Could not fully correct SQL after {retry_count} attempts")
         
-        # Select best attempt
-        best_sql, best_validation = self._select_best_attempt(
-            [generated_sql] + [generated_sql] * len(improvements),  # Track all SQLs
-            validation_history
-        )
-        
+        # Select best attempt from all tracked SQLs
+        best_sql, best_validation = self._select_best_attempt(all_sqls, validation_history)
+
         reasoning = self._generate_reasoning(
-            question, best_sql, validation_history, 
+            question, best_sql, validation_history,
             retry_count, False, improvements
         )
-        
+
         print(f"\n{'='*60}")
         print("STEP 8 COMPLETED - BEST ATTEMPT SELECTED")
         print(f"{'='*60}\n")
-        
+
         return {
-            'final_sql': current_sql,  # Last attempt
+            'final_sql': best_sql,  # Best attempt by validation score
             'is_valid': False,
             'retry_count': retry_count,
             'validation_history': validation_history,

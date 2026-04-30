@@ -88,11 +88,18 @@ class EnhancedSchemaLinker:
         
         # Parse LLM results
         llm_elements = self._parse_llm_analysis(llm_analysis, schema_dict)
+
+        # If LLM parsing returned no tables (format mismatch), fall back to Layer 1 candidates
+        if not llm_elements['tables']:
+            print("   ⚠️  Layer 2 returned 0 tables — falling back to Layer 1 candidates")
+            llm_elements['tables'] = set(layer1_candidates['tables'])
+            llm_elements['columns'] = {t: set(cols) for t, cols in layer1_candidates['columns'].items()}
+
         layer_details['layer2'] = {
             'llm_analysis': llm_analysis,
             'parsed_elements': llm_elements
         }
-        
+
         print(f"✓ LLM identified {len(llm_elements['tables'])} tables")
         print(f"✓ LLM identified {sum(len(cols) for cols in llm_elements['columns'].values())} columns\n")
         

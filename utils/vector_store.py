@@ -4,23 +4,25 @@ Can be run directly to build the index: python vector_store.py
 """
 import json
 import os
+import time
 import numpy as np
 import faiss
 import ollama
 from pathlib import Path
 from typing import List, Dict, Optional
 
-# Read OLLAMA_HOST dynamically at call time (same fix as adapt_baseline.py).
-# The ollama library binds its default client at import time, so setting
-# OLLAMA_HOST after import has no effect without this patch.
-_ollama_embeddings_orig = ollama.embeddings
-def _patched_embeddings(*args, **kwargs):
+# Cache one client per host so we never create a new SSL context per call.
+# The ollama library binds its default client at import time, so OLLAMA_HOST
+# set after import has no effect without this patch.
+_ollama_client_cache: dict = {}
+
+def _get_ollama_client():
     host = os.environ.get("OLLAMA_HOST", "")
-    if host:
-        client = ollama.Client(host=host)
-        return client.embeddings(*args, **kwargs)
-    return _ollama_embeddings_orig(*args, **kwargs)
-ollama.embeddings = _patched_embeddings
+    if not host:
+        return None
+    if host not in _ollama_client_cache:
+        _ollama_client_cache[host] = ollama.Client(host=host)
+    return _ollama_client_cache[host]
 
 
 class SQLVectorStore:
@@ -31,18 +33,22 @@ class SQLVectorStore:
         self.examples = []
         self.dimension = None
 
-    def _get_embedding(self, text: str) -> np.ndarray:
-        """Get embedding vector for text using Nomic"""
-        try:
-            response = ollama.embeddings(
-                model=self.embedding_model,
-                prompt=text
-            )
-            embedding = np.array(response['embedding'], dtype=np.float32)
-            return embedding
-        except Exception as e:
-            print(f"Error getting embedding: {e}")
-            return None
+    def _get_embedding(self, text: str, retries: int = 3) -> np.ndarray:
+        """Get embedding vector for text using Nomic, with retry on transient errors."""
+        for attempt in range(retries):
+            try:
+                client = _get_ollama_client()
+                if client:
+                    response = client.embeddings(model=self.embedding_model, prompt=text)
+                else:
+                    response = ollama.embeddings(model=self.embedding_model, prompt=text)
+                return np.array(response['embedding'], dtype=np.float32)
+            except Exception as e:
+                if attempt < retries - 1:
+                    time.sleep(1)
+                else:
+                    print(f"Error getting embedding after {retries} attempts: {e}")
+        return None
     
     def build_index_from_spider(
         self, 

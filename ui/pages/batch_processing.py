@@ -129,7 +129,7 @@ def main():
         st.markdown("---")
         st.markdown("### 🎯 Batch Settings")
         
-        num_queries = st.number_input("Number of Queries", min_value=1, max_value=1000, value=10, step=5)
+        num_queries = st.number_input("Number of Queries", min_value=1, max_value=1034, value=10, step=5)
         start_idx = st.number_input("Start Index", min_value=0, value=0)
         
         checkpoint_interval = st.number_input("Checkpoint Interval", min_value=5, max_value=100, value=25, step=5)

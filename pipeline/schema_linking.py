@@ -6,7 +6,6 @@ Layer 3: Post-Validation
 
 This replaces schema_linking.py
 """
-import json
 import ollama
 import re
 from typing import Dict, List, Set, Tuple, Optional
@@ -337,33 +336,36 @@ class EnhancedSchemaLinker:
         """
         Layer 2: LLM analysis with hints from Layer 1
         """
-        candidate_tables_str = ', '.join(sorted(layer1_candidates['tables'])) or 'none detected'
         prompt = f"""{schema_summary}
 
 QUESTION: {question}
 
-PRE-FILTER HINTS (string matching):
-Candidate Tables: {candidate_tables_str}
+PRE-FILTER HINTS (from string matching):
+Candidate Tables: {', '.join(sorted(layer1_candidates['tables']))}
 Candidate Columns: {self._format_candidate_columns(layer1_candidates['columns'])}
 
-Identify the MINIMUM schema elements needed to answer the question.
-Think step by step, then output ONLY the JSON block below — no other text.
+Analyze this question to identify the MINIMUM required schema elements.
+Use the pre-filter hints as guidance, but you can include or exclude elements as needed.
 
-Reasoning:
-1. What is the question asking for? (goal, entities)
-2. Which tables are strictly needed? (use hints, but validate each)
-3. Which columns are needed for SELECT / WHERE / JOIN / GROUP BY?
+STEP 1: What is being asked?
+- Identify the main goal (count, list values, aggregation, comparison)
+- What entities/concepts are mentioned?
 
-Output (use exact names from the schema above):
-```json
-{{
-  "tables": ["TableName1", "TableName2"],
-  "columns": {{
-    "TableName1": ["col1", "col2"],
-    "TableName2": ["col3"]
-  }}
-}}
-```"""
+STEP 2: Identify relevant tables
+- Which tables contain the needed data?
+- Consider the pre-filtered candidates but validate their necessity
+- List exact table names from schema
+
+STEP 3: Identify relevant columns
+- Which columns are needed for SELECT, WHERE, aggregations, or JOINs?
+- Format: table1: col1, col2; table2: col3, col4
+- Only include columns that are actually needed
+
+STEP 4: Identify required foreign keys (if multiple tables)
+- Which foreign keys connect the tables?
+- Format: table1.col → table2.col
+
+Provide concise analysis:"""
         
         try:
             response = ollama.chat(
@@ -657,71 +659,59 @@ Output (use exact names from the schema above):
         return summary
     
     def _parse_llm_analysis(
-        self,
-        llm_analysis: str,
+        self, 
+        llm_analysis: str, 
         schema_dict: Dict[str, List[Dict]]
     ) -> Dict:
-        """Parse LLM analysis — JSON first, regex fallback."""
+        """Parse LLM's analysis (same as before)"""
         relevant_tables = set()
         relevant_columns = {}
-
-        # --- PRIMARY: try to extract a JSON block ---
-        json_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', llm_analysis, re.IGNORECASE)
-        if not json_match:
-            json_match = re.search(r'(\{[\s\S]*\})', llm_analysis)
-        if json_match:
-            try:
-                data = json.loads(json_match.group(1))
-                for t in data.get('tables', []):
-                    if t in schema_dict:
-                        relevant_tables.add(t)
-                for t, cols in data.get('columns', {}).items():
-                    if t in schema_dict:
-                        valid = {c['column_name'] for c in schema_dict[t]}
-                        relevant_columns[t] = set(c for c in cols if c in valid)
-                if relevant_tables:
-                    # Fill columns for any table missing from the JSON columns map
-                    for table in relevant_tables:
-                        if table not in relevant_columns:
-                            relevant_columns[table] = set(
-                                c['column_name'] for c in schema_dict[table]
-                            )
-                    print(f"   ✓ Layer 2 JSON parsed: {sorted(relevant_tables)}")
-                    return {'tables': relevant_tables, 'columns': relevant_columns, 'entity_values': {}}
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        # --- FALLBACK: regex parsing ---
-        print("   ⚠️  JSON parse failed — falling back to regex")
+        entity_values = {}
+        
+        # Parse tables
         table_pattern = r'Tables?:\s*([^\n]+)'
-        for match in re.findall(table_pattern, llm_analysis, re.IGNORECASE):
-            for table in re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\b', match):
+        table_matches = re.findall(table_pattern, llm_analysis, re.IGNORECASE)
+        
+        for match in table_matches:
+            tables = re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\b', match)
+            for table in tables:
                 if table in schema_dict:
                     relevant_tables.add(table)
-
+        
+        # Parse columns
         column_pattern = r'([A-Za-z_][A-Za-z0-9_]*):\s*([^\n;]+)'
-        for table, cols_str in re.findall(column_pattern, llm_analysis):
+        column_matches = re.findall(column_pattern, llm_analysis)
+        
+        for table, cols_str in column_matches:
             if table in schema_dict:
+                cols = re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\b', cols_str)
                 table_col_names = [c['column_name'] for c in schema_dict[table]]
-                relevant_columns.setdefault(table, set())
-                for col in re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\b', cols_str):
+                
+                if table not in relevant_columns:
+                    relevant_columns[table] = set()
+                
+                for col in cols:
                     if col in table_col_names:
                         relevant_columns[table].add(col)
-
-        # Last-resort: scan for table name mentions in free text
+        
+        # Fallback
         if not relevant_tables:
-            for table_name in schema_dict:
+            for table_name in schema_dict.keys():
                 if table_name.lower() in llm_analysis.lower():
                     relevant_tables.add(table_name)
-
-        # Ensure every selected table has a column set
+        
+        # Ensure all tables have columns
         for table in relevant_tables:
             if table not in relevant_columns:
                 relevant_columns[table] = set(
-                    c['column_name'] for c in schema_dict[table]
+                    col['column_name'] for col in schema_dict[table]
                 )
-
-        return {'tables': relevant_tables, 'columns': relevant_columns, 'entity_values': {}}
+        
+        return {
+            'tables': relevant_tables,
+            'columns': relevant_columns,
+            'entity_values': entity_values
+        }
     
     def _identify_critical_foreign_keys(
         self, 

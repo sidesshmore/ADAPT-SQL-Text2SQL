@@ -449,7 +449,7 @@ Examples:
         prompt += "3. **Aggregation Format**: Follow ground truth pattern (WITH_ALIAS or NO_ALIAS)\n"
         prompt += "4. **JOIN Format**: Use INNER JOIN, LEFT JOIN (explicit)\n"
         prompt += "5. **Column Format**: Remove verbose aliases on aggregations if ground truth doesn't use them\n"
-        prompt += "6. **CRITICAL — No subquery rewrites**: If the NatSQL uses `WHERE @ JOIN`, convert it to a plain JOIN clause. Do NOT rewrite as WHERE col IN (SELECT...) or WHERE EXISTS (SELECT...) unless the NatSQL explicitly contains a subquery.\n\n"
+        prompt += "6. **CRITICAL — No subquery rewrites**: If the NatSQL uses `WHERE @ JOIN`, you MUST convert it to a plain JOIN clause. NEVER rewrite as `WHERE col IN (SELECT...)` or `WHERE EXISTS (SELECT...)` — those are different logic. Example: NatSQL `SELECT fname WHERE @ JOIN has_pet.*` → SQL `SELECT fname FROM student JOIN has_pet ON student.stuid = has_pet.stuid` (NOT `WHERE stuid IN (SELECT stuid FROM has_pet)`).\n\n"
         
         # Add ground truth patterns
         prompt += "## Ground Truth Patterns to Follow\n\n"

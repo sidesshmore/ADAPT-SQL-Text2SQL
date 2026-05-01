@@ -11,6 +11,7 @@ Usage:
 import os
 import ollama
 import re
+from difflib import get_close_matches
 from typing import Dict, List
 
 # Cache one client per host so the 90s timeout applies without re-creating SSL contexts.
@@ -393,7 +394,8 @@ class ValidationFeedbackRetry:
         prompt += "4. **Ensure JOIN conditions use foreign key relationships**\n"
         prompt += "5. **Validate aggregations have proper GROUP BY**\n"
         prompt += "6. **Check subquery structure and syntax**\n"
-        prompt += "7. **Maintain the original query intent** - answer the same question\n\n"
+        prompt += "7. **Maintain the original query intent** - answer the same question\n"
+        prompt += "8. **Prefer plain JOINs over subqueries**: If the failed SQL used a JOIN, keep it as a JOIN. Do NOT rewrite as `WHERE col IN (SELECT...)` or `WHERE EXISTS (SELECT...)` unless the question explicitly requires set difference or correlated logic.\n\n"
         
         # Add specific fixes based on error types
         if errors:
@@ -407,7 +409,19 @@ class ValidationFeedbackRetry:
                 
                 elif error['type'] == 'SCHEMA_ERROR' and 'column' in error:
                     column = error['column']
-                    prompt += f"- Fix invalid column `{column}` - check schema for correct column names\n"
+                    table  = error.get('table', '')
+                    # Find closest valid column name so the LLM knows exactly what to use
+                    all_cols = []
+                    if table and table in pruned_schema:
+                        all_cols = [c['column_name'] for c in pruned_schema[table]]
+                    else:
+                        for cols in pruned_schema.values():
+                            all_cols.extend(c['column_name'] for c in cols)
+                    closest = get_close_matches(column, all_cols, n=1, cutoff=0.5)
+                    if closest:
+                        prompt += f"- Replace invalid column `{column}` with `{closest[0]}` (closest valid column in schema)\n"
+                    else:
+                        prompt += f"- Fix invalid column `{column}` - use only column names listed in the schema above\n"
                 
                 elif error['type'] == 'JOIN_ERROR':
                     prompt += "- Fix JOIN condition to use proper foreign key relationship\n"

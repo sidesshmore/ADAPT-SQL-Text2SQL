@@ -38,10 +38,10 @@ class RuleBasedComplexityClassifier:
             r'\bnot\s+in\b',
             r'\bno(?:t)?\s+\w+\s+that\b',
             
-            # Existence patterns
-            r'\bthat\s+(?:have|has|had)\b',
-            r'\bwho\s+(?:have|has|had)\b',
-            r'\bwhich\s+(?:have|has|had)\b',
+            # Existence patterns — but NOT superlatives ("that had the most X" → ORDER BY LIMIT, not subquery)
+            r'\bthat\s+(?:have|has|had)\b(?!\s+the\s+(?:most|fewest|highest|lowest|greatest|least))',
+            r'\bwho\s+(?:have|has|had)\b(?!\s+the\s+(?:most|fewest|highest|lowest|greatest|least))',
+            r'\bwhich\s+(?:have|has|had)\b(?!\s+the\s+(?:most|fewest|highest|lowest|greatest|least))',
             
             # Superlatives with filters
             r'most\s+\w+\s+(?:that|who|which)',
@@ -55,14 +55,18 @@ class RuleBasedComplexityClassifier:
         self.complex_indicators = [
             # Multiple aggregations
             r'(count|sum|avg|max|min).*(?:and|,).*(count|sum|avg|max|min)',
-            
+
             # Aggregation with grouping
             r'(?:each|every|per)\s+\w+',
             r'(?:for|by)\s+each',
-            
+
+            # Superlatives → ORDER BY + LIMIT, not subqueries
+            r'\bthe\s+(?:most|fewest|highest|lowest|greatest|least)\s+\w+',
+            r'\b(?:most|fewest|highest|lowest|greatest|least)\s+number\s+of\b',
+
             # Multiple conditions
             r'(?:and|or).*(?:and|or)',
-            
+
             # Join keywords
             r'\b(?:with|from|in)\s+\w+\s+(?:and|with|from)\s+\w+\b',
         ]

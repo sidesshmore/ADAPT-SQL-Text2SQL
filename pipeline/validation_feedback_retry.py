@@ -8,9 +8,23 @@ Usage:
     retry_engine = ValidationFeedbackRetry(model="qwen3-coder", max_retries=2)
     result = retry_engine.retry_with_feedback(...)
 """
+import os
 import ollama
 import re
 from typing import Dict, List
+
+# Cache one client per host so the 90s timeout applies without re-creating SSL contexts.
+_client_cache: dict = {}
+
+def _get_ollama_client():
+    host = os.environ.get("OLLAMA_HOST", "")
+    key = host or "default"
+    if key not in _client_cache:
+        kwargs = {'timeout': 90}
+        if host:
+            kwargs['host'] = host
+        _client_cache[key] = ollama.Client(**kwargs)
+    return _client_cache[key]
 
 
 class ValidationFeedbackRetry:
@@ -239,7 +253,8 @@ class ValidationFeedbackRetry:
         )
         
         try:
-            response = ollama.chat(
+            client = _get_ollama_client()
+            response = client.chat(
                 model=self.model,
                 messages=[
                     {
@@ -248,19 +263,17 @@ class ValidationFeedbackRetry:
                     },
                     {'role': 'user', 'content': prompt}
                 ],
-                options={
-                    'temperature': 0.3  # Slightly higher for creativity in fixes
-                }
+                options={'temperature': 0.1}
             )
-            
+
             corrected_sql = response['message']['content'].strip()
             corrected_sql = self._clean_sql(corrected_sql)
-            
+
             return corrected_sql
-            
+
         except Exception as e:
-            print(f"   ⚠️  Error during regeneration: {e}")
-            return failed_sql  # Return original if regeneration fails
+            print(f"   ⚠️  Regeneration failed ({type(e).__name__}): {e}")
+            return failed_sql  # Return original if regeneration fails or times out
     
     def _build_retry_prompt(
         self,

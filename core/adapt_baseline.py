@@ -10,13 +10,21 @@ from typing import Dict, List
 # Patch ollama module-level functions to read OLLAMA_HOST at call time.
 # This is needed because ollama binds its default client at import time,
 # so setting OLLAMA_HOST after import has no effect without this patch.
-def _patched_chat(**kwargs):
+# Clients are cached per host to avoid creating a new SSL context on every call.
+# A 90-second timeout prevents infinite hangs when the model stalls mid-generation.
+_ollama_client_cache: dict = {}
+
+def _get_patched_client():
     host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-    return _ollama_module.Client(host=host).chat(**kwargs)
+    if host not in _ollama_client_cache:
+        _ollama_client_cache[host] = _ollama_module.Client(host=host, timeout=90)
+    return _ollama_client_cache[host]
+
+def _patched_chat(**kwargs):
+    return _get_patched_client().chat(**kwargs)
 
 def _patched_embeddings(**kwargs):
-    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-    return _ollama_module.Client(host=host).embeddings(**kwargs)
+    return _get_patched_client().embeddings(**kwargs)
 
 _ollama_module.chat = _patched_chat
 _ollama_module.embeddings = _patched_embeddings

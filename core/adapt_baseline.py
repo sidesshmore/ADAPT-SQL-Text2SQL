@@ -234,6 +234,19 @@ class ADAPTBaseline:
             intermediate_generator=self.intermediate_generator
         )
     
+    @staticmethod
+    def _is_sql_truncated(sql: str) -> bool:
+        """Return True if the SQL appears to have been cut off mid-generation."""
+        sql = sql.strip().rstrip(';').strip()
+        if not sql:
+            return False
+        # Unbalanced parentheses — strongest signal
+        if sql.count('(') > sql.count(')'):
+            return True
+        # Last meaningful token expects continuation
+        last = sql.upper().split()[-1] if sql.split() else ''
+        return last in {'SELECT', 'FROM', 'WHERE', 'JOIN', 'AND', 'OR', 'ON', 'BY', 'AS', 'IN', 'NOT', 'HAVING'}
+
     def run_step7_validation(
         self,
         generated_sql: str,
@@ -426,6 +439,22 @@ class ADAPTBaseline:
             
         else:
             print(f"\n⚠️ Unknown strategy: {strategy.value}")
+
+        # Truncation check — retry once if the SQL was cut off mid-statement
+        if generated_sql and self._is_sql_truncated(generated_sql):
+            print("   ⚠️  Generated SQL appears truncated — retrying generation once")
+            if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
+                r6 = self.run_step6a_few_shot_generation(natural_query, results['step1'], results['step4'])
+                generated_sql = r6['generated_sql']
+                results['step6a'] = r6
+            elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
+                r6 = self.run_step6b_intermediate_generation(natural_query, results['step1'], results['step4'])
+                generated_sql = r6['generated_sql']
+                results['step6b'] = r6
+            elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
+                r6 = self.run_step6c_decomposed_generation(natural_query, results['step1'], results['step2'], results['step4'])
+                generated_sql = r6['generated_sql']
+                results['step6c'] = r6
 
         # Step 6.5: SQL Normalization (if enabled)
         if self.enable_sql_normalization and generated_sql:

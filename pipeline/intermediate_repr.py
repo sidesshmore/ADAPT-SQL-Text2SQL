@@ -93,7 +93,8 @@ class IntermediateRepresentationGenerator:
             pruned_schema,
             schema_links,
             best_examples,
-            gt_patterns
+            gt_patterns,
+            original_question=question
         )
         print(f"   SQL generated: {len(generated_sql)} characters")
         
@@ -432,7 +433,8 @@ Examples:
         pruned_schema: Dict[str, List[Dict]],
         schema_links: Dict,
         examples: List[Dict],
-        gt_patterns: Dict
+        gt_patterns: Dict,
+        original_question: str = ""
     ) -> str:
         """
         NEW: Convert NatSQL to SQL with structure normalization
@@ -478,8 +480,12 @@ Examples:
         
         # Add NatSQL to convert
         prompt += "## Your Task\n\n"
+        if original_question:
+            prompt += f"Original question: {original_question}\n\n"
         prompt += f"NatSQL:\n{natsql}\n\n"
         prompt += "Convert to normalized SQL following the rules and ground truth patterns above.\n"
+        if original_question:
+            prompt += "CRITICAL: Before outputting, verify every filter condition from the original question appears in WHERE/HAVING.\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

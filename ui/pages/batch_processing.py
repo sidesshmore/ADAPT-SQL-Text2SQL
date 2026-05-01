@@ -112,16 +112,16 @@ def main():
         st.markdown("---")
         st.markdown("### 📂 Dataset")
 
-        SPIDER_ROOT = "/scratch/smore123/ADAPT-SQL-Text2SQL/data/spider"
+        SPIDER_ROOT = Path(__file__).parent.parent.parent / "data" / "spider"
         DATASET_PRESETS = {
             "Dev (1,034 queries)": {
-                "json": f"{SPIDER_ROOT}/dev.json",
-                "db":   f"{SPIDER_ROOT}/spider_data/database",
+                "json": str(SPIDER_ROOT / "dev.json"),
+                "db":   str(SPIDER_ROOT / "spider_data" / "database"),
                 "max_queries": 1034,
             },
             "Test (2,147 queries)": {
-                "json": f"{SPIDER_ROOT}/spider_data/test.json",
-                "db":   f"{SPIDER_ROOT}/spider_data/test_database",
+                "json": str(SPIDER_ROOT / "spider_data" / "test.json"),
+                "db":   str(SPIDER_ROOT / "spider_data" / "test_database"),
                 "max_queries": 2147,
             },
         }

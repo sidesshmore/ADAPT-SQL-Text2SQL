@@ -48,4 +48,4 @@ build/
 *.temp
 
 # Streamlit
-.streamlit/
+.streamlit/improvement.md

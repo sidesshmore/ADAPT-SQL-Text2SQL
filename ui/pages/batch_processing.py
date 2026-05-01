@@ -133,7 +133,7 @@ def main():
             spider_json_path = st.text_input("📄 JSON path", value=preset["json"])
             spider_db_dir    = st.text_input("📁 DB directory", value=preset["db"])
 
-        if "dataset_choice" not in st.session_state or st.session_state.get("_last_dataset") != dataset_choice:
+        if st.session_state.get("_last_dataset") != dataset_choice:
             st.session_state["_last_dataset"] = dataset_choice
             st.session_state.pop("spider_data", None)
 

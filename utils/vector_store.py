@@ -230,22 +230,22 @@ class SQLVectorStore:
 
 # Main execution block - runs when script is executed directly
 if __name__ == "__main__":
-    # Configuration — path relative to project root so this works on any machine
+    # Build from train_spider.json (not dev/test — using eval data as retrieval source is leakage)
     _script_dir = Path(__file__).parent.parent
-    SPIDER_DEV_PATH = str(_script_dir / "data" / "spider" / "dev.json")
+    SPIDER_TRAIN_PATH = str(_script_dir / "data" / "spider" / "spider_data" / "train_spider.json")
     SAVE_PATH = "./vector_store"
     EMBEDDING_MODEL = "nomic-embed-text"
-    
+
     print("🚀 Building FAISS Vector Index for Spider Dataset")
     print("=" * 60)
-    print(f"Spider Dataset: {SPIDER_DEV_PATH}")
+    print(f"Spider Dataset: {SPIDER_TRAIN_PATH}")
     print(f"Save Location: {SAVE_PATH}")
     print(f"Embedding Model: {EMBEDDING_MODEL}")
     print("=" * 60)
-    
+
     # Initialize and build
     store = SQLVectorStore(embedding_model=EMBEDDING_MODEL)
-    success = store.build_index_from_spider(SPIDER_DEV_PATH, SAVE_PATH)
+    success = store.build_index_from_spider(SPIDER_TRAIN_PATH, SAVE_PATH)
     
     if success:
         print("\n✅ Index built successfully!")

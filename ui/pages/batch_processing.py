@@ -97,7 +97,6 @@ def get_foreign_keys_from_sqlite(db_path: str) -> list:
 def main():
     st.title("📦 ADAPT-SQL Batch Processing")
     st.markdown("Process multiple queries with automatic checkpoints and comprehensive statistics")
-    st.caption(f"Active dataset: **{dataset_choice}** · `{spider_json_path}`")
     st.markdown("---")
     
     # Configuration sidebar
@@ -217,6 +216,8 @@ def main():
             st.info(f"📊 {len(st.session_state.spider_data)} examples loaded")
     
     # Main content
+    st.caption(f"Active dataset: **{dataset_choice}** · `{spider_json_path}`")
+
     if 'spider_data' not in st.session_state or not st.session_state.spider_data:
         st.info("👈 Load dataset from sidebar to begin")
         

@@ -556,8 +556,13 @@ Output ONLY the SQL query:"""
         
         prompt += "## Your Task\n\n"
         prompt += "Convert the intermediate representation into a complete SQL query.\n"
-        prompt += "Integrate the sub-queries appropriately (as subqueries in WHERE, IN, comparison).\n"
-        prompt += "Generate syntactically correct nested SQL.\n\n"
+        prompt += "Follow these rules strictly:\n"
+        prompt += "1. **Counting per group**: Use JOIN + GROUP BY + count(*) AS alias — NEVER use WHERE EXISTS. "
+        prompt += "Example: 'number of pets per student' → SELECT stuid, count(*) FROM student JOIN has_pet ON student.stuid=has_pet.stuid GROUP BY student.stuid\n"
+        prompt += "2. **Threshold filters on counts**: Use HAVING count(*) > N — NEVER use a subquery in WHERE. "
+        prompt += "Example: 'students with more than one pet' → ... HAVING count(*) > 1\n"
+        prompt += "3. **EXISTS/IN subqueries**: Only use when the question asks 'exists' or 'at least one' and you do NOT need the count value itself.\n"
+        prompt += "4. **COMPLETE query**: Output the entire SQL — do NOT stop mid-statement. Every open parenthesis must be closed.\n\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

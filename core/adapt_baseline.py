@@ -251,6 +251,9 @@ class ADAPTBaseline:
         # Unbalanced parentheses — strongest signal
         if sql.count('(') > sql.count(')'):
             return True
+        # Last character is a dangling connector (table.  or list,  or open ()
+        if sql[-1] in {'.', ',', '('}:
+            return True
         # Last meaningful token expects continuation
         last = sql.upper().split()[-1] if sql.split() else ''
         return last in {'SELECT', 'FROM', 'WHERE', 'JOIN', 'AND', 'OR', 'ON', 'BY', 'AS', 'IN', 'NOT', 'HAVING'}

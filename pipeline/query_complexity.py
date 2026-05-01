@@ -32,31 +32,21 @@ class RuleBasedComplexityClassifier:
             r'lower\s+than\s+(average|avg)',
             r'above\s+(average|avg)',
             r'below\s+(average|avg)',
-
-            # INTERSECT patterns: entities satisfying two conditions across separate rows
-            r'\b(?:in|won|played|appeared|competed|participated)\s+both\b',
-            r'\bboth\b.*?\band\b.*?\b\d{4}\b',  # "both 2013 and 2016" (years)
-            r'\bboth\s+the\b',                   # "both the WTA Championships and ..."
-
-            # EXCEPT patterns: explicit set exclusion
-            r'\bdo(?:es)?\s+not\s+(?:have|speak|play|appear|contain|use|belong|attend)\b',
-            r'\bnever\b',
-            r'\bbut\s+not\b',
-
+            
             # Exclusion patterns
             r'\bexcept\b',
             r'\bnot\s+in\b',
             r'\bno(?:t)?\s+\w+\s+that\b',
-
+            
             # Existence patterns — but NOT superlatives ("that had the most X" → ORDER BY LIMIT, not subquery)
             r'\bthat\s+(?:have|has|had)\b(?!\s+the\s+(?:most|fewest|highest|lowest|greatest|least))',
             r'\bwho\s+(?:have|has|had)\b(?!\s+the\s+(?:most|fewest|highest|lowest|greatest|least))',
             r'\bwhich\s+(?:have|has|had)\b(?!\s+the\s+(?:most|fewest|highest|lowest|greatest|least))',
-
+            
             # Superlatives with filters
             r'most\s+\w+\s+(?:that|who|which)',
             r'least\s+\w+\s+(?:that|who|which)',
-
+            
             # Nested logic
             r'\b(?:every|all|any)\s+\w+\s+(?:that|who|which)\b',
         ]

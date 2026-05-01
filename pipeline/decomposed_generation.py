@@ -50,14 +50,6 @@ class DecomposedGenerator:
                 'examples': [
                     'all students EXCEPT students who failed'
                 ]
-            },
-            'INTERSECT': {
-                'pattern': 'SELECT {cols} WHERE {cond1} INTERSECT SELECT {cols} WHERE {cond2}',
-                'description': 'Entities appearing in both condition groups (across separate rows)',
-                'examples': [
-                    'winners in 2013 INTERSECT winners in 2016',
-                    'players who won WTA Championships INTERSECT players who won Australian Open'
-                ]
             }
         }
 
@@ -75,15 +67,6 @@ class DecomposedGenerator:
         """
         question_lower = question.lower()
 
-        # Rule 0: INTERSECT — entities satisfying two separate-row conditions
-        # "played in both X and Y", "won both X and Y", "in both 2013 and 2016"
-        if re.search(r'\b(?:in|won|played|appeared|competed|participated)\s+both\b', question_lower):
-            return 'INTERSECT'
-        if re.search(r'\bboth\b.*?\band\b', question_lower) and re.search(r'\b\d{4}\b', question_lower):
-            return 'INTERSECT'
-        if re.search(r'\bboth\s+the\b', question_lower):
-            return 'INTERSECT'
-
         # Rule 1: "more/less than average" → COMPARISON_WITH_AGG
         if any(phrase in question_lower for phrase in [
             'more than average', 'less than average',
@@ -92,13 +75,8 @@ class DecomposedGenerator:
         ]):
             return 'COMPARISON_WITH_AGG'
 
-        # Rule 2: explicit set-difference / exclusion phrases → EXCEPT
-        if any(phrase in question_lower for phrase in ['but not', 'do not speak', 'does not speak',
-                                                        'do not have', 'does not have', 'never']):
-            return 'EXCEPT'
-
-        # Rule 2b: traditional NOT IN phrases → NOT_IN_SELECT
-        if any(phrase in question_lower for phrase in ['except', 'exclude', 'not in']):
+        # Rule 2: explicit set-difference phrases → NOT_IN_SELECT
+        if any(phrase in question_lower for phrase in ['except', 'but not', 'exclude', 'not in']):
             return 'NOT_IN_SELECT'
 
         # Rule 3: existence phrases → IN_SELECT
@@ -106,7 +84,7 @@ class DecomposedGenerator:
             return 'IN_SELECT'
 
         # Rule 4: absence phrases → NOT_IN_SELECT
-        if any(phrase in question_lower for phrase in ['without']):
+        if any(phrase in question_lower for phrase in ['does not have', 'without', 'never']):
             return 'NOT_IN_SELECT'
 
         # No rule fired — ask LLM to classify
@@ -529,11 +507,7 @@ Output ONLY the SQL query:"""
         elif pattern_key == 'EXCEPT':
             # Should have: SELECT ... EXCEPT SELECT ...
             return 'EXCEPT' in sql_upper
-
-        elif pattern_key == 'INTERSECT':
-            # Should have: SELECT ... INTERSECT SELECT ...
-            return 'INTERSECT' in sql_upper
-
+        
         return True  # Default: assume valid
 
 
@@ -588,18 +562,7 @@ Output ONLY the SQL query:"""
         prompt += "2. **Threshold filters on counts**: Use HAVING count(*) > N — NEVER use a subquery in WHERE. "
         prompt += "Example: 'students with more than one pet' → ... HAVING count(*) > 1\n"
         prompt += "3. **EXISTS/IN subqueries**: Only use when the question asks 'exists' or 'at least one' and you do NOT need the count value itself.\n"
-        prompt += "4. **COMPLETE query**: Output the entire SQL — do NOT stop mid-statement. Every open parenthesis must be closed.\n"
-        prompt += "5. **INTERSECT pattern**: When the question asks for entities satisfying two conditions across SEPARATE ROWS (e.g., 'winners who played in both 2013 and 2016' — the same name appears in rows for different years), use INTERSECT:\n"
-        prompt += "   SELECT col FROM table WHERE condition_A  INTERSECT  SELECT col FROM table WHERE condition_B\n"
-        prompt += "   Do NOT use WHERE year = 2013 AND year = 2016 — that matches zero rows (same row cannot have two years).\n"
-        prompt += "6. **EXCEPT pattern**: When the question asks 'do not speak X', 'never Y', 'except those who Z', use EXCEPT:\n"
-        prompt += "   SELECT col FROM table  EXCEPT  SELECT col FROM table WHERE exclusion_condition\n"
-        prompt += "   Do NOT invert the WHERE condition — 'do not speak English' is NOT WHERE language = 'English'.\n"
-        prompt += "7. **Rank/position semantics**: 'highest rank' or 'best rank' means the SMALLEST rank NUMBER (rank 1 is best) → use MIN(rank_col). "
-        prompt += "'lowest rank' → MAX(rank_col). "
-        prompt += "'less than ANY country in group X' → less than MAX(col WHERE group=X) — must be less than ALL of them = less than the largest.\n"
-        prompt += "8. **Superlative = ORDER BY + LIMIT**: 'the winner with the MOST matches' → GROUP BY winner ORDER BY count(*) DESC LIMIT 1. "
-        prompt += "Never compare count() to MAX(count()) via a subquery for superlative queries.\n\n"
+        prompt += "4. **COMPLETE query**: Output the entire SQL — do NOT stop mid-statement. Every open parenthesis must be closed.\n\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

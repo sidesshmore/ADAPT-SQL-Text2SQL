@@ -395,11 +395,7 @@ class ValidationFeedbackRetry:
         prompt += "5. **Validate aggregations have proper GROUP BY**\n"
         prompt += "6. **Check subquery structure and syntax**\n"
         prompt += "7. **Maintain the original query intent** - answer the same question\n"
-        prompt += "8. **Prefer plain JOINs over subqueries**: If the failed SQL used a JOIN, keep it as a JOIN. Do NOT rewrite as `WHERE col IN (SELECT...)` or `WHERE EXISTS (SELECT...)` unless the question explicitly requires set difference or correlated logic.\n"
-        prompt += "9. **Never reference subquery aliases in outer WHERE**: An alias defined inside `(SELECT ... AS alias ...)` does NOT exist in the outer scope. If you need the row with the min/max count, use `ORDER BY count(*) ASC LIMIT 1` directly — do NOT wrap the count in a subquery and compare to its alias.\n"
-        prompt += "   WRONG:  WHERE cnt = (SELECT MIN(cnt) FROM (SELECT count(*) AS cnt FROM t GROUP BY col))\n"
-        prompt += "   RIGHT:  ... GROUP BY col ORDER BY count(*) ASC LIMIT 1\n"
-        prompt += "10. **Qualify ambiguous columns**: When JOINing tables that share a column name (e.g., both have `document_id`), always write `table_name.column_name`. Bare column names across a JOIN cause 'ambiguous column' errors.\n\n"
+        prompt += "8. **Prefer plain JOINs over subqueries**: If the failed SQL used a JOIN, keep it as a JOIN. Do NOT rewrite as `WHERE col IN (SELECT...)` or `WHERE EXISTS (SELECT...)` unless the question explicitly requires set difference or correlated logic.\n\n"
         
         # Add specific fixes based on error types
         if errors:
@@ -429,22 +425,10 @@ class ValidationFeedbackRetry:
                 
                 elif error['type'] == 'JOIN_ERROR':
                     prompt += "- Fix JOIN condition to use proper foreign key relationship\n"
-
-                elif error['type'] == 'ALIAS_SCOPE_ERROR':
-                    prompt += f"- ALIAS SCOPE BUG: {error['message']}\n"
-                    prompt += "  REWRITE RULE: Find the row with min/max count using:\n"
-                    prompt += "    SELECT col FROM table GROUP BY col ORDER BY count(*) ASC LIMIT 1\n"
-                    prompt += "  Do NOT use a nested subquery that exposes a count alias to the outer WHERE.\n"
-
-                elif error['type'] == 'AMBIGUOUS_COLUMN':
-                    prompt += f"- AMBIGUOUS COLUMN: {error['message']}\n"
-                    prompt += "  Add the table name before the column everywhere it is unqualified.\n"
-                    prompt += "  Example: change `document_id` to `Paragraphs.document_id`\n"
-                    prompt += "  Better option: if only one table's data is needed, remove the JOIN entirely.\n"
-
+                
                 elif error['type'] == 'SYNTAX_ERROR':
                     prompt += f"- Fix syntax error: {error['message']}\n"
-
+                
                 elif error['type'] == 'AGGREGATION_WARNING':
                     prompt += "- Add GROUP BY clause or remove non-aggregated columns from SELECT\n"
             

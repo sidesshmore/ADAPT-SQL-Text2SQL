@@ -110,19 +110,7 @@ class SQLValidator:
         subquery_errors = self._validate_subqueries(generated_sql)
         errors.extend(subquery_errors)
         print(f"   Subquery errors: {len(subquery_errors)}")
-
-        # 6a. Check for alias scope violations (subquery alias referenced in outer WHERE)
-        print("7.6a: Checking alias scope violations...")
-        alias_errors = self._check_alias_scope_violations(generated_sql)
-        errors.extend(alias_errors)
-        print(f"   Alias scope errors: {len(alias_errors)}")
-
-        # 6b. Check for ambiguous column names across joined tables
-        print("7.6b: Checking ambiguous column references...")
-        ambiguous_errors = self._check_ambiguous_columns(generated_sql, pruned_schema)
-        errors.extend(ambiguous_errors)
-        print(f"   Ambiguous column errors: {len(ambiguous_errors)}")
-
+        
         # 7. Check for common mistakes
         print("7.7: Checking for common mistakes...")
         mistake_warnings = self._check_common_mistakes(generated_sql, pruned_schema)
@@ -565,109 +553,6 @@ class SQLValidator:
         
         return errors
     
-    def _check_alias_scope_violations(self, sql: str) -> List[Dict]:
-        """Detect aliases defined inside subqueries that are referenced in the outer WHERE clause.
-        Pattern: WHERE alias = ... where alias was defined as AS alias inside a (SELECT ...) block.
-        """
-        errors = []
-        if sql.upper().count('SELECT') <= 1:
-            return errors
-
-        # Extract text of all top-level subquery blocks via parenthesis depth tracking
-        subquery_texts = []
-        depth = 0
-        start = -1
-        for i, ch in enumerate(sql):
-            if ch == '(':
-                if depth == 0:
-                    start = i
-                depth += 1
-            elif ch == ')':
-                depth -= 1
-                if depth == 0 and start >= 0:
-                    subquery_texts.append(sql[start + 1:i])
-
-        inner_aliases = set()
-        for text in subquery_texts:
-            if 'SELECT' in text.upper():
-                for alias in re.findall(r'\bAS\s+(\w+)', text, re.IGNORECASE):
-                    inner_aliases.add(alias.lower())
-
-        if not inner_aliases:
-            return errors
-
-        # Outer WHERE: text before the first subquery open paren
-        outer_parts = re.split(r'\((?=\s*SELECT\b)', sql, maxsplit=1, flags=re.IGNORECASE)
-        if len(outer_parts) <= 1:
-            return errors
-
-        outer_where_match = re.search(r'\bWHERE\b(.*?)$', outer_parts[0], re.IGNORECASE | re.DOTALL)
-        if not outer_where_match:
-            return errors
-
-        outer_where = outer_where_match.group(1)
-        for alias in inner_aliases:
-            if re.search(rf'\b{re.escape(alias)}\b', outer_where, re.IGNORECASE):
-                errors.append({
-                    'type': 'ALIAS_SCOPE_ERROR',
-                    'message': (
-                        f"Alias '{alias}' is defined inside a subquery (AS {alias}) and cannot be "
-                        f"referenced in the outer WHERE clause — SQLite will raise 'no such column: {alias}'. "
-                        f"Fix: rewrite as GROUP BY + ORDER BY count(*) ASC/DESC LIMIT 1 to find the "
-                        f"min/max group without exposing the alias outside the subquery."
-                    ),
-                    'severity': 'CRITICAL'
-                })
-        return errors
-
-    def _check_ambiguous_columns(self, sql: str, pruned_schema: Dict) -> List[Dict]:
-        """Detect unqualified column references that are ambiguous across the joined tables."""
-        errors = []
-        if 'JOIN' not in sql.upper():
-            return errors
-
-        query_tables = self._extract_table_names(sql)
-        schema_lower_map = {k.lower(): k for k in pruned_schema}
-        resolved = [schema_lower_map[t.lower()] for t in query_tables if t.lower() in schema_lower_map]
-
-        if len(resolved) < 2:
-            return errors
-
-        # Map column name → list of tables that have it
-        col_to_tables: Dict[str, list] = {}
-        for table in resolved:
-            for col_def in pruned_schema[table]:
-                col = col_def['column_name'].lower()
-                col_to_tables.setdefault(col, []).append(table)
-
-        ambiguous = {col: tables for col, tables in col_to_tables.items() if len(tables) >= 2}
-        if not ambiguous:
-            return errors
-
-        # Columns that are already qualified somewhere (table.col) — still check for bare refs
-        qualified_refs = {m.lower() for m in re.findall(r'\w+\.(\w+)', sql)}
-        sql_keywords_lower = {k.lower() for k in self.sql_keywords}
-        table_names_lower = {t.lower() for t in resolved}
-
-        for col, tables in ambiguous.items():
-            # Skip if this column is ALWAYS qualified in the SQL
-            total = len(re.findall(rf'\b{re.escape(col)}\b', sql, re.IGNORECASE))
-            qualified_count = len(re.findall(rf'\w+\.{re.escape(col)}\b', sql, re.IGNORECASE))
-            bare_count = total - qualified_count
-            if bare_count > 0 and col not in sql_keywords_lower and col not in table_names_lower:
-                errors.append({
-                    'type': 'AMBIGUOUS_COLUMN',
-                    'message': (
-                        f"Column '{col}' exists in multiple joined tables ({', '.join(tables)}) "
-                        f"and is used without a table qualifier — SQLite will raise 'ambiguous column name: {col}'. "
-                        f"Fix: qualify as table_name.{col}, or simplify the query to use only one table."
-                    ),
-                    'severity': 'CRITICAL'
-                })
-                break  # Report first ambiguous column; retry will fix and re-validate
-
-        return errors
-
     def _check_common_mistakes(self, sql: str, pruned_schema: Dict) -> List[Dict]:
         """Check for common SQL mistakes"""
         warnings = []

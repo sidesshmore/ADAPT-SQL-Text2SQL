@@ -449,7 +449,15 @@ Examples:
         prompt += "3. **Aggregation Format**: Follow ground truth pattern (WITH_ALIAS or NO_ALIAS)\n"
         prompt += "4. **JOIN Format**: Use INNER JOIN, LEFT JOIN (explicit)\n"
         prompt += "5. **Column Format**: Remove verbose aliases on aggregations if ground truth doesn't use them\n"
-        prompt += "6. **CRITICAL — No subquery rewrites**: If the NatSQL uses `WHERE @ JOIN`, you MUST convert it to a plain JOIN clause. NEVER rewrite as `WHERE col IN (SELECT...)` or `WHERE EXISTS (SELECT...)` — those are different logic. Example: NatSQL `SELECT fname WHERE @ JOIN has_pet.*` → SQL `SELECT fname FROM student JOIN has_pet ON student.stuid = has_pet.stuid` (NOT `WHERE stuid IN (SELECT stuid FROM has_pet)`).\n\n"
+        prompt += "6. **CRITICAL — No subquery rewrites**: If the NatSQL uses `WHERE @ JOIN`, you MUST convert it to a plain JOIN clause. NEVER rewrite as `WHERE col IN (SELECT...)` or `WHERE EXISTS (SELECT...)` — those are different logic. Example: NatSQL `SELECT fname WHERE @ JOIN has_pet.*` → SQL `SELECT fname FROM student JOIN has_pet ON student.stuid = has_pet.stuid` (NOT `WHERE stuid IN (SELECT stuid FROM has_pet)`).\n"
+        prompt += "7. **INTERSECT pattern**: When the question asks for entities satisfying two conditions across SEPARATE ROWS (e.g., 'won both the WTA Championships and the Australian Open' — same player in different match rows), use INTERSECT:\n"
+        prompt += "   SELECT col FROM table WHERE condition_A  INTERSECT  SELECT col FROM table WHERE condition_B\n"
+        prompt += "   Do NOT use WHERE cond_A AND cond_B — that requires both conditions in one row (impossible for different tournaments/years).\n"
+        prompt += "8. **EXCEPT pattern**: 'do not speak X', 'never Y', 'except those who Z' → use EXCEPT, not a negated WHERE:\n"
+        prompt += "   SELECT col FROM table  EXCEPT  SELECT col FROM table WHERE exclusion_condition\n"
+        prompt += "9. **Rank/position semantics**: 'highest rank' / 'best rank' → MIN(rank_col) [rank 1 = best]. "
+        prompt += "'less than ANY X in group' → less than MAX(X in group). "
+        prompt += "'youngest' in a birth_year column → MAX(birth_year) not MIN.\n\n"
         
         # Add ground truth patterns
         prompt += "## Ground Truth Patterns to Follow\n\n"

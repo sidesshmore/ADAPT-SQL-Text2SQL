@@ -221,7 +221,10 @@ class FewShotGenerator:
         prompt += "1. Add explicit FROM clause\n"
         prompt += "2. Convert WHERE @ JOIN to proper JOIN ON\n"
         prompt += "3. Use standard SQL syntax\n"
-        prompt += "4. Match the style of ground truth examples\n\n"
+        prompt += "4. Match the style of ground truth examples\n"
+        prompt += "5. **INTERSECT**: When entities must satisfy two conditions across SEPARATE ROWS (e.g., 'won in both 2013 and 2016'), use INTERSECT — not WHERE year=2013 AND year=2016.\n"
+        prompt += "6. **EXCEPT**: 'do not X' / 'never X' / 'except those who X' → use EXCEPT, not a negated WHERE filter.\n"
+        prompt += "7. **Rank semantics**: 'highest rank' = MIN(rank_col) [rank 1 is the best]. 'less than ANY in group X' = less than MAX(col in X).\n\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

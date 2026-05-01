@@ -97,6 +97,7 @@ def get_foreign_keys_from_sqlite(db_path: str) -> list:
 def main():
     st.title("📦 ADAPT-SQL Batch Processing")
     st.markdown("Process multiple queries with automatic checkpoints and comprehensive statistics")
+    st.caption(f"Active dataset: **{dataset_choice}** · `{spider_json_path}`")
     st.markdown("---")
     
     # Configuration sidebar
@@ -108,17 +109,35 @@ def main():
         ollama_host = st.text_input("🔌 Ollama Host", value="http://127.0.0.1:11437")
         import os
         os.environ["OLLAMA_HOST"] = ollama_host
-        
-        spider_json_path = st.text_input(
-            "📄 Spider dev.json",
-            value="/scratch/smore123/ADAPT-SQL-Text2SQL/data/spider/dev.json"
-        )
 
-        spider_db_dir = st.text_input(
-            "📁 Spider DB directory",
-            value="/scratch/smore123/ADAPT-SQL-Text2SQL/data/spider/spider_data/database"
-        )
-        
+        st.markdown("---")
+        st.markdown("### 📂 Dataset")
+
+        SPIDER_ROOT = "/scratch/smore123/ADAPT-SQL-Text2SQL/data/spider"
+        DATASET_PRESETS = {
+            "Dev (1,034 queries)": {
+                "json": f"{SPIDER_ROOT}/dev.json",
+                "db":   f"{SPIDER_ROOT}/spider_data/database",
+                "max_queries": 1034,
+            },
+            "Test (2,147 queries)": {
+                "json": f"{SPIDER_ROOT}/spider_data/test.json",
+                "db":   f"{SPIDER_ROOT}/spider_data/test_database",
+                "max_queries": 2147,
+            },
+        }
+
+        dataset_choice = st.selectbox("🗂️ Dataset", list(DATASET_PRESETS.keys()))
+        preset = DATASET_PRESETS[dataset_choice]
+
+        with st.expander("Override paths", expanded=False):
+            spider_json_path = st.text_input("📄 JSON path", value=preset["json"])
+            spider_db_dir    = st.text_input("📁 DB directory", value=preset["db"])
+
+        if "dataset_choice" not in st.session_state or st.session_state.get("_last_dataset") != dataset_choice:
+            st.session_state["_last_dataset"] = dataset_choice
+            st.session_state.pop("spider_data", None)
+
         vector_store_path = st.text_input(
             "📚 Vector Store",
             value="./vector_store"
@@ -129,7 +148,7 @@ def main():
         st.markdown("---")
         st.markdown("### 🎯 Batch Settings")
         
-        num_queries = st.number_input("Number of Queries", min_value=1, max_value=1034, value=10, step=5)
+        num_queries = st.number_input("Number of Queries", min_value=1, max_value=preset["max_queries"], value=10, step=5)
         start_idx = st.number_input("Start Index", min_value=0, value=0)
         
         checkpoint_interval = st.number_input("Checkpoint Interval", min_value=5, max_value=100, value=25, step=5)

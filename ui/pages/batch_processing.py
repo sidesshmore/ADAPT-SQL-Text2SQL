@@ -18,6 +18,7 @@ from ui.enhanced_retry_engine import EnhancedRetryEngine
 from ui.batch_utils import (
     display_comprehensive_statistics,
     generate_comprehensive_csv,
+    render_live_stats,
     save_checkpoint,
     load_checkpoint,
     get_checkpoint_files
@@ -312,6 +313,7 @@ def main():
         # Progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
+        live_stats = st.empty()   # single panel, refreshed every 50 queries
         
         # Initialize or resume results
         if 'batch_results' not in st.session_state or not st.session_state.get('checkpoint_resumed', False):
@@ -403,11 +405,15 @@ def main():
             # Save checkpoint every N queries
             if len(results) % checkpoint_interval == 0:
                 checkpoint_file = save_checkpoint(
-                    results, 
+                    results,
                     st.session_state.batch_timestamp,
                     checkpoint_path
                 )
                 status_text.markdown(f"💾 **Checkpoint saved:** {len(results)} results")
+
+            # Refresh live stats every 50 queries
+            if len(results) % 50 == 0:
+                render_live_stats(live_stats, results)
         
         # Save final checkpoint
         final_checkpoint = save_checkpoint(
@@ -417,6 +423,9 @@ def main():
             final=True
         )
         
+        # Final stats update
+        render_live_stats(live_stats, results)
+
         progress_bar.empty()
         status_text.empty()
         

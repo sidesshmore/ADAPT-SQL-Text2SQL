@@ -63,6 +63,44 @@ def get_checkpoint_files(output_dir: Path) -> List[Path]:
 # COMPREHENSIVE STATISTICS DISPLAY
 # ============================================================================
 
+def render_live_stats(placeholder, results: List[Dict]):
+    """Refresh the single live-stats panel every 50 queries."""
+    total = len(results)
+    eval_results = [r for r in results if r['result'].get('step11')]
+
+    with placeholder.container():
+        st.markdown(f"#### Live Stats — {total} queries processed")
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            valid = sum(1 for r in results if r['result'].get('final_is_valid', False))
+            valid_pct = (valid / total * 100) if total else 0
+            st.metric("Valid SQL", f"{valid_pct:.1f}%", f"{valid}/{total}")
+
+        with col2:
+            if eval_results:
+                ex = sum(1 for r in eval_results if r['result']['step11']['execution_accuracy'])
+                ex_pct = ex / len(eval_results) * 100
+                st.metric("EX (Exec Accuracy)", f"{ex_pct:.1f}%", f"{ex}/{len(eval_results)}")
+            else:
+                st.metric("EX (Exec Accuracy)", "N/A")
+
+        with col3:
+            if eval_results:
+                em = sum(1 for r in eval_results if r['result']['step11']['exact_set_match'])
+                em_pct = em / len(eval_results) * 100
+                st.metric("EM (Exact Match)", f"{em_pct:.1f}%", f"{em}/{len(eval_results)}")
+            else:
+                st.metric("EM (Exact Match)", "N/A")
+
+        with col4:
+            if eval_results:
+                avg_score = sum(r['result']['step11']['evaluation_score'] for r in eval_results) / len(eval_results)
+                st.metric("Avg Score", f"{avg_score:.3f}")
+            else:
+                st.metric("Avg Score", "N/A")
+
+
 def display_comprehensive_statistics(results: List[Dict]):
     """Display comprehensive at-a-glance statistics"""
     

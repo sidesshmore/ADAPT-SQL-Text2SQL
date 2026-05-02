@@ -243,6 +243,16 @@ class ADAPTBaseline:
         )
     
     @staticmethod
+    def _is_negation_query(question: str) -> bool:
+        """Return True if the question likely expects 0 rows (negation/exclusion intent)."""
+        q = ' ' + question.lower() + ' '
+        patterns = [
+            " never ", " no ", " not ", " without ", " none ", " zero ",
+            "n't ", " except ", " exclud", " neither ", " nor ",
+        ]
+        return any(p in q for p in patterns)
+
+    @staticmethod
     def _is_sql_truncated(sql: str) -> bool:
         """Return True if the SQL appears to have been cut off mid-generation."""
         sql = sql.strip().rstrip(';').strip()
@@ -377,7 +387,8 @@ class ADAPTBaseline:
         db_path: str = None,
         gold_sql: str = None,
         enable_execution: bool = False,
-        enable_evaluation: bool = False
+        enable_evaluation: bool = False,
+        enable_execution_retry: bool = True
     ) -> Dict:
         """
         Run complete ADAPT-SQL pipeline (Steps 1-11)
@@ -395,6 +406,7 @@ class ADAPTBaseline:
             gold_sql: Ground truth SQL (required for evaluation)
             enable_execution: Enable SQL execution (Step 10)
             enable_evaluation: Enable evaluation (Step 11)
+            enable_execution_retry: Retry when generated SQL returns 0 rows (default True)
             
         Returns:
             Complete results dictionary with all steps
@@ -536,11 +548,34 @@ class ADAPTBaseline:
         # Step 10: Execute SQL (if enabled and db_path provided)
         results['step10_generated'] = None
         results['step10_gold'] = None
-        
+        results['exec_retry'] = None
+
         if enable_execution and db_path and final_sql:
             # Execute generated SQL
             results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
-            
+
+            # Execution-driven retry: fix queries that return 0 rows on a positive question
+            exec_result = results['step10_generated']
+            if (enable_execution_retry and
+                    exec_result and
+                    exec_result.get('success') and
+                    len(exec_result.get('result_rows', [])) == 0 and
+                    not self._is_negation_query(natural_query)):
+                exec_retry = self.retry_engine.retry_with_execution_feedback(
+                    question=natural_query,
+                    pruned_schema=results['step1']['pruned_schema'],
+                    schema_links=results['step1']['schema_links'],
+                    current_sql=final_sql,
+                    generation_strategy=strategy.value,
+                    db_path=db_path,
+                    db_manager=self.db_manager
+                )
+                results['exec_retry'] = exec_retry
+                if exec_retry.get('sql_changed'):
+                    final_sql = exec_retry['final_sql']
+                    results['final_sql'] = final_sql
+                    results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
+
             # Execute gold SQL if provided
             if gold_sql:
                 results['step10_gold'] = self.run_step10_execute(gold_sql, db_path)

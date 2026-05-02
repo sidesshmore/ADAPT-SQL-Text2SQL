@@ -518,6 +518,148 @@ class ValidationFeedbackRetry:
         
         return all_sqls[min(best_idx, len(all_sqls)-1)], validation_history[best_idx]
     
+    def retry_with_execution_feedback(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        current_sql: str,
+        generation_strategy: str,
+        db_path: str = None,
+        db_manager=None,
+        max_exec_retries: int = 2
+    ) -> Dict:
+        """
+        Execution-driven retry: fix SQL that executes but returns 0 rows.
+        Inspired by LitE-SQL execution-guided self-correction.
+        Only called when the question is NOT a negation/exclusion query.
+        """
+        print(f"\n{'='*60}")
+        print("STEP 8 (EXEC): EXECUTION-DRIVEN RETRY")
+        print(f"{'='*60}\n")
+        print("⚠️  SQL returned 0 rows — attempting execution-guided fix...")
+
+        best_sql = current_sql
+
+        for attempt in range(1, max_exec_retries + 1):
+            print(f"\n{'─'*60}")
+            print(f"EXEC RETRY ATTEMPT {attempt}/{max_exec_retries}")
+            print(f"{'─'*60}\n")
+
+            corrected_sql = self._regenerate_for_empty_result(
+                question=question,
+                pruned_schema=pruned_schema,
+                schema_links=schema_links,
+                failed_sql=best_sql,
+                generation_strategy=generation_strategy,
+                attempt_number=attempt
+            )
+
+            if not corrected_sql or corrected_sql == best_sql:
+                print("   No change produced — stopping exec retry")
+                break
+
+            if db_manager and db_path:
+                exec_result = db_manager.execute_query(corrected_sql, db_path)
+                rows = exec_result.get('result_rows', [])
+                if exec_result.get('success') and len(rows) > 0:
+                    print(f"   ✅ Fixed! New SQL returns {len(rows)} row(s)")
+                    best_sql = corrected_sql
+                    break
+                elif not exec_result.get('success'):
+                    print("   ⚠️  Corrected SQL fails to execute — keeping previous SQL")
+                    break
+                else:
+                    print("   Still 0 rows after correction — continuing...")
+                    best_sql = corrected_sql
+            else:
+                best_sql = corrected_sql
+
+        changed = best_sql != current_sql
+        print(f"\n{'='*60}")
+        print(f"STEP 8 (EXEC) COMPLETED — {'SQL updated' if changed else 'no change'}")
+        print(f"{'='*60}\n")
+
+        return {
+            'final_sql': best_sql,
+            'retry_count': max_exec_retries,
+            'exec_retried': True,
+            'sql_changed': changed
+        }
+
+    def _regenerate_for_empty_result(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        failed_sql: str,
+        generation_strategy: str,
+        attempt_number: int
+    ) -> str:
+        """Prompt LLM to fix a SQL that executed successfully but returned 0 rows."""
+        schema_str = ""
+        for table_name, columns in sorted(pruned_schema.items()):
+            col_list = ", ".join(
+                f"{c['column_name']} ({c.get('data_type', '')})" for c in columns
+            )
+            schema_str += f"  {table_name}: {col_list}\n"
+
+        fk_str = ""
+        for fk in schema_links.get('foreign_keys', []):
+            fk_str += f"  {fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}\n"
+        if not fk_str:
+            fk_str = "  (none)\n"
+
+        prompt = f"""# SQL Execution-Driven Fix (Attempt {attempt_number})
+
+## Task
+The SQL below executed without errors but returned **0 rows**.
+Fix it so it returns the correct non-empty result for this question.
+
+## Question
+{question}
+
+## Schema
+{schema_str}
+## Foreign Keys
+{fk_str}
+## SQL That Returned 0 Rows
+```sql
+{failed_sql}
+```
+
+## Common Causes of 0 Rows
+1. Over-strict WHERE filter — literal string that doesn't match DB content (case, spacing, abbreviation)
+2. Wrong JOIN condition — joining on wrong columns or mismatched types
+3. Missing JOIN — a required table is not joined in
+4. Wrong column used in filter — filtering a column that doesn't hold the target value
+5. HAVING clause excludes all groups — relax or remove the HAVING condition
+
+## Instructions
+- Identify the most likely cause of the 0-row result
+- Fix only that condition; keep the rest of the query intact
+- Do NOT change the question's intent
+- Output ONLY the corrected SQL (no explanations, no markdown fences):"""
+
+        try:
+            client = _get_ollama_client()
+            response = client.chat(
+                model=self.model,
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': 'You are an expert SQL debugger. Fix SQL that returns 0 rows. Output ONLY the corrected SQL.'
+                    },
+                    {'role': 'user', 'content': prompt}
+                ],
+                options={'temperature': 0.15}
+            )
+            corrected = response['message']['content'].strip()
+            return self._clean_sql(corrected)
+        except Exception as e:
+            print(f"   ⚠️  Exec retry LLM call failed: {e}")
+            return failed_sql
+
     def _generate_reasoning(
         self,
         question: str,

@@ -587,6 +587,110 @@ class ValidationFeedbackRetry:
             'sql_changed': changed
         }
 
+    def retry_with_plausibility_feedback(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        current_sql: str,
+        generation_strategy: str,
+        plausibility_issue: str,
+        db_path: str = None,
+        db_manager=None
+    ) -> Dict:
+        """Fix SQL whose result shape is implausible (e.g., scalar agg returning multiple rows)."""
+        print(f"\n{'='*60}")
+        print("STEP 8 (PLAUSIBILITY): SHAPE-MISMATCH RETRY")
+        print(f"{'='*60}\n")
+        print(f"⚠️  Plausibility issue: {plausibility_issue}")
+
+        corrected_sql = self._regenerate_for_implausible_result(
+            question=question,
+            pruned_schema=pruned_schema,
+            schema_links=schema_links,
+            failed_sql=current_sql,
+            plausibility_issue=plausibility_issue
+        )
+
+        changed = corrected_sql and corrected_sql != current_sql
+        if changed and db_manager and db_path:
+            exec_result = db_manager.execute_query(corrected_sql, db_path)
+            if not exec_result.get('success'):
+                print("   ⚠️  Plausibility-fixed SQL fails to execute — reverting")
+                corrected_sql = current_sql
+                changed = False
+
+        final_sql = corrected_sql if changed else current_sql
+        print(f"\n{'='*60}")
+        print(f"STEP 8 (PLAUSIBILITY) COMPLETED — {'SQL updated' if changed else 'no change'}")
+        print(f"{'='*60}\n")
+
+        return {'final_sql': final_sql, 'sql_changed': changed}
+
+    def _regenerate_for_implausible_result(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        failed_sql: str,
+        plausibility_issue: str
+    ) -> str:
+        """Prompt LLM to fix a SQL whose result shape is implausible."""
+        schema_str = ""
+        for table_name, columns in sorted(pruned_schema.items()):
+            col_list = ", ".join(
+                f"{c['column_name']} ({c.get('data_type', '')})" for c in columns
+            )
+            schema_str += f"  {table_name}: {col_list}\n"
+
+        fk_str = ""
+        for fk in schema_links.get('foreign_keys', []):
+            fk_str += f"  {fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}\n"
+        if not fk_str:
+            fk_str = "  (none)\n"
+
+        prompt = f"""# SQL Shape-Mismatch Fix
+
+## Problem
+{plausibility_issue}
+
+## Question
+{question}
+
+## Schema
+{schema_str}
+## Foreign Keys
+{fk_str}
+## Current SQL
+```sql
+{failed_sql}
+```
+
+## Fix Instructions
+- If the aggregation (COUNT/SUM/AVG/MAX/MIN) applies to groups, add a GROUP BY clause.
+- If the aggregation is scalar (single result expected), remove any stray joins or WHERE conditions that cause row duplication.
+- Keep the question's intent unchanged.
+- Output ONLY the corrected SQL (no explanations, no markdown fences):"""
+
+        try:
+            client = _get_ollama_client()
+            response = client.chat(
+                model=self.model,
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': 'You are an expert SQL debugger. Fix SQL with incorrect result shapes. Output ONLY the corrected SQL.'
+                    },
+                    {'role': 'user', 'content': prompt}
+                ],
+                options={'temperature': 0.15}
+            )
+            corrected = response['message']['content'].strip()
+            return self._clean_sql(corrected)
+        except Exception as e:
+            print(f"   ⚠️  Plausibility retry LLM call failed: {e}")
+            return failed_sql
+
     def _regenerate_for_empty_result(
         self,
         question: str,

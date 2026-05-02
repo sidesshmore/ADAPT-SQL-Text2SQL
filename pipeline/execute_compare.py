@@ -2,6 +2,7 @@
 STEP 10: Execute and Compare
 Executes generated SQL on the database and handles errors gracefully
 """
+import re
 import sqlite3
 import pandas as pd
 from typing import Dict, Optional, Any
@@ -18,6 +19,31 @@ class DatabaseManager:
         """
         self.timeout = timeout
     
+    def _check_plausibility(self, sql: str, result_rows: list) -> Dict:
+        """
+        Rule-based sanity check: does the result shape match what the SQL implies?
+        Catches queries where a scalar aggregation without GROUP BY returns != 1 row.
+        """
+        sql_upper = sql.upper()
+        actual = len(result_rows)
+
+        agg_funcs = ['COUNT(', 'SUM(', 'AVG(', 'MAX(', 'MIN(']
+        has_scalar_agg = (
+            any(f in sql_upper for f in agg_funcs)
+            and 'GROUP BY' not in sql_upper
+            and sql_upper.count('SELECT') == 1
+        )
+        if has_scalar_agg and actual != 1:
+            agg_name = next((f.rstrip('(') for f in agg_funcs if f in sql_upper), 'AGG')
+            return {
+                'plausible': False,
+                'issue': f'Scalar {agg_name} without GROUP BY should return 1 row, got {actual}',
+                'expected_rows': 'exactly_1',
+                'actual_rows': actual
+            }
+
+        return {'plausible': True, 'issue': None, 'expected_rows': 'unknown', 'actual_rows': actual}
+
     def execute_query(
         self,
         sql: str,
@@ -52,7 +78,7 @@ class DatabaseManager:
         if not Path(db_path).exists():
             error_msg = f"Database file not found: {db_path}"
             print(f"❌ {error_msg}")
-            
+
             return {
                 'success': False,
                 'result_df': None,
@@ -60,6 +86,7 @@ class DatabaseManager:
                 'column_names': None,
                 'error_message': error_msg,
                 'execution_time': 0.0,
+                'plausibility_check': None,
                 'reasoning': self._generate_reasoning(
                     sql, db_path, False, error_message=error_msg
                 )
@@ -101,20 +128,24 @@ class DatabaseManager:
             # Close connection
             conn.close()
             
+            plausibility = self._check_plausibility(sql, result_rows)
+
             print(f"   ✅ Query executed successfully")
             print(f"   Rows returned: {len(result_rows)}")
             print(f"   Columns: {len(column_names)}")
             print(f"   Execution time: {execution_time:.3f}s")
-            
+            if not plausibility['plausible']:
+                print(f"   ⚠️  Plausibility: {plausibility['issue']}")
+
             reasoning = self._generate_reasoning(
-                sql, db_path, True, result_df=result_df, 
+                sql, db_path, True, result_df=result_df,
                 execution_time=execution_time
             )
-            
+
             print(f"\n{'='*60}")
             print("STEP 10 COMPLETED ✓")
             print(f"{'='*60}\n")
-            
+
             return {
                 'success': True,
                 'result_df': result_df,
@@ -122,6 +153,7 @@ class DatabaseManager:
                 'column_names': column_names,
                 'error_message': None,
                 'execution_time': execution_time,
+                'plausibility_check': plausibility,
                 'reasoning': reasoning
             }
             
@@ -148,6 +180,7 @@ class DatabaseManager:
                 'column_names': None,
                 'error_message': error_msg,
                 'execution_time': execution_time,
+                'plausibility_check': None,
                 'reasoning': reasoning
             }
             
@@ -174,6 +207,7 @@ class DatabaseManager:
                 'column_names': None,
                 'error_message': error_msg,
                 'execution_time': execution_time,
+                'plausibility_check': None,
                 'reasoning': reasoning
             }
             
@@ -200,6 +234,7 @@ class DatabaseManager:
                 'column_names': None,
                 'error_message': error_msg,
                 'execution_time': execution_time,
+                'plausibility_check': None,
                 'reasoning': reasoning
             }
     

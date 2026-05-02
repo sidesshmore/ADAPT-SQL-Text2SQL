@@ -135,7 +135,12 @@ class FewShotGenerator:
         # Add task
         prompt += "## Your Task\n\n"
         prompt += f"Question: {question}\n\n"
-        prompt += "Generate NatSQL intermediate representation:\n"
+        prompt += "Before generating NatSQL, reason through:\n"
+        prompt += "1. Which tables contain the needed data?\n"
+        prompt += "2. Do tables need to be joined? If so, which foreign key connects them?\n"
+        prompt += "3. What filter conditions (WHERE) does the question require?\n"
+        prompt += "4. Is aggregation (count/sum/avg/max/min), GROUP BY, ORDER BY, or a subquery needed?\n\n"
+        prompt += "Now generate NatSQL intermediate representation:\n"
         
         natsql = self._generate_with_llm(
             prompt,

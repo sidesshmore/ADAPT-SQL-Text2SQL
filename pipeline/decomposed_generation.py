@@ -563,6 +563,11 @@ Output ONLY the SQL query:"""
         prompt += "Example: 'students with more than one pet' → ... HAVING count(*) > 1\n"
         prompt += "3. **EXISTS/IN subqueries**: Only use when the question asks 'exists' or 'at least one' and you do NOT need the count value itself.\n"
         prompt += "4. **COMPLETE query**: Output the entire SQL — do NOT stop mid-statement. Every open parenthesis must be closed.\n\n"
+        prompt += "Before writing the SQL, verify:\n"
+        prompt += "1. All sub-queries are correctly combined using the right pattern (IN/NOT IN/EXISTS/comparison/EXCEPT)\n"
+        prompt += "2. JOIN conditions use the correct foreign key columns from the schema above\n"
+        prompt += "3. WHERE/HAVING filters match the original question exactly\n"
+        prompt += "4. All parentheses are balanced and the statement is complete\n\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

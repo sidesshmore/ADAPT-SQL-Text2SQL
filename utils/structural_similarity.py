@@ -351,6 +351,44 @@ class SQLStructuralAnalyzer:
         
         return max(0.0, min(1.0, similarity))
 
+    def calculate_reasoning_path_similarity(
+        self,
+        structure1: Dict,
+        structure2: Dict
+    ) -> float:
+        """
+        Clause-set Jaccard similarity: do both queries require the same SQL clauses?
+        Examples that match on GROUP BY, subquery, HAVING, etc. are more useful
+        than examples that are lexically similar but use a different clause structure.
+        """
+        def clause_set(s: Dict) -> set:
+            cs = set()
+            if s.get('has_group_by'):
+                cs.add('GROUP_BY')
+            if s.get('has_having'):
+                cs.add('HAVING')
+            if s.get('has_order_by'):
+                cs.add('ORDER_BY')
+            if s.get('has_subquery'):
+                cs.add('SUBQUERY')
+            if s.get('has_limit'):
+                cs.add('LIMIT')
+            if s.get('num_joins', 0) > 0:
+                cs.add('JOIN')
+            if s.get('aggregations'):
+                cs.add('AGG')
+            return cs
+
+        c1 = clause_set(structure1)
+        c2 = clause_set(structure2)
+
+        if not c1 and not c2:
+            return 1.0
+
+        intersection = len(c1 & c2)
+        union = len(c1 | c2)
+        return intersection / union if union > 0 else 1.0
+
     def calculate_style_similarity(
         self,
         style1: Dict,
@@ -396,67 +434,85 @@ class EnhancedExampleSelector:
         self,
         examples: List[Dict],
         preliminary_sql: str,
-        semantic_weight: float = 0.5,
-        structural_weight: float = 0.3,
-        style_weight: float = 0.2
+        semantic_weight: float = 0.45,
+        structural_weight: float = 0.25,
+        style_weight: float = 0.2,
+        reasoning_path_weight: float = 0.1
     ) -> List[Dict]:
         """
-        Rerank examples using DAIL-SQL approach with style similarity
-        
+        Rerank examples using DAIL-SQL approach extended with reasoning path similarity.
+
         Args:
             examples: Examples with 'similarity_score' and 'query' fields
             preliminary_sql: Preliminary SQL from Step 3
-            semantic_weight: Weight for semantic similarity (default: 0.5)
-            structural_weight: Weight for structural similarity (default: 0.3)
+            semantic_weight: Weight for semantic similarity (default: 0.45)
+            structural_weight: Weight for structural similarity (default: 0.25)
             style_weight: Weight for ground-truth style similarity (default: 0.2)
-            
+            reasoning_path_weight: Weight for clause-set Jaccard similarity (default: 0.1)
+
         Returns:
             Reranked examples with updated scores
         """
         # Analyze preliminary SQL
         target_structure = self.analyzer.analyze_structure(preliminary_sql)
         target_style = self.analyzer.analyze_ground_truth_style(preliminary_sql)
-        
+
+        # Normalize weights so they always sum to 1
+        total = semantic_weight + structural_weight + style_weight + reasoning_path_weight
+        if total == 0:
+            total = 1.0
+        w_sem = semantic_weight / total
+        w_str = structural_weight / total
+        w_sty = style_weight / total
+        w_rp = reasoning_path_weight / total
+
         # Calculate similarities for each example
         for example in examples:
             example_sql = example.get('query', '')
-            
+
             if not example_sql:
                 example['structural_similarity'] = 0.0
                 example['style_similarity'] = 0.0
+                example['reasoning_path_similarity'] = 0.0
                 example['combined_score'] = example.get('similarity_score', 0.0)
                 continue
-            
+
             # Analyze example
             example_structure = self.analyzer.analyze_structure(example_sql)
             example_style = self.analyzer.analyze_ground_truth_style(example_sql)
-            
+
             # Calculate structural similarity
             structural_sim = self.analyzer.calculate_similarity(
                 target_structure, example_structure
             )
-            
+
             # Calculate style similarity
             style_sim = self.analyzer.calculate_style_similarity(
                 target_style, example_style
             )
-            
+
+            # Calculate reasoning path (clause-set Jaccard) similarity
+            rp_sim = self.analyzer.calculate_reasoning_path_similarity(
+                target_structure, example_structure
+            )
+
             example['structural_similarity'] = structural_sim
             example['style_similarity'] = style_sim
-            
-            # Calculate combined score (DAIL-SQL approach)
+            example['reasoning_path_similarity'] = rp_sim
+
             semantic_score = example.get('similarity_score', 0.0)
             combined_score = (
-                semantic_weight * semantic_score +
-                structural_weight * structural_sim +
-                style_weight * style_sim
+                w_sem * semantic_score
+                + w_str * structural_sim
+                + w_sty * style_sim
+                + w_rp * rp_sim
             )
-            
+
             example['combined_score'] = combined_score
-        
+
         # Sort by combined score (descending)
         examples.sort(key=lambda x: x.get('combined_score', 0.0), reverse=True)
-        
+
         return examples
 
 
@@ -467,26 +523,20 @@ class EnhancedExampleSelector:
 def enhance_example_selection(
         examples: List[Dict],
         preliminary_sql: str,
-        semantic_weight: float = 0.5,
-        structural_weight: float = 0.3,
-        style_weight: float = 0.2
+        semantic_weight: float = 0.45,
+        structural_weight: float = 0.25,
+        style_weight: float = 0.2,
+        reasoning_path_weight: float = 0.1
     ) -> List[Dict]:
         """
-        Convenience function for enhanced example selection (DAIL-SQL approach)
-        
-        Args:
-            examples: Examples from vector search (Step 4)
-            preliminary_sql: Preliminary SQL from Step 3
-            semantic_weight: Weight for semantic similarity (default: 0.5)
-            structural_weight: Weight for structural similarity (default: 0.3)
-            style_weight: Weight for ground-truth style similarity (default: 0.2)
-            
-        Returns:
-            Reranked examples with combined scores
+        Convenience function for enhanced example selection (DAIL-SQL + reasoning path).
+
+        Weights are automatically normalized to sum to 1.
         """
         selector = EnhancedExampleSelector(semantic_weight, structural_weight)
-        # Pass style_weight to rerank_examples
-        return selector.rerank_examples(examples, preliminary_sql, 
-                                        semantic_weight, structural_weight, style_weight)
+        return selector.rerank_examples(
+            examples, preliminary_sql,
+            semantic_weight, structural_weight, style_weight, reasoning_path_weight
+        )
 
 

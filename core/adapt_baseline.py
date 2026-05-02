@@ -168,21 +168,22 @@ class ADAPTBaseline:
             
             from utils.structural_similarity import enhance_example_selection
             
-            # DAIL-SQL weights: 0.5 semantic + 0.3 structural + 0.2 style
+            # Weights: 0.45 semantic + 0.25 structural + 0.2 style + 0.1 reasoning path
             reranked_examples = enhance_example_selection(
                 examples=result['similar_examples'],
                 preliminary_sql=preliminary_sql,
-                semantic_weight=0.5,
-                structural_weight=0.3,
-                style_weight=0.2
+                semantic_weight=0.45,
+                structural_weight=0.25,
+                style_weight=0.2,
+                reasoning_path_weight=0.1
             )
-            
+
             result['similar_examples'] = reranked_examples
             result['reranking_applied'] = True
-            result['reranking_method'] = 'DAIL-SQL (semantic + structural + style)'
-            
+            result['reranking_method'] = 'DAIL-SQL + reasoning path (semantic + structural + style + clause-set)'
+
             print(f"   ✓ Reranked {len(reranked_examples)} examples")
-            print(f"   Weights: 50% semantic + 30% structural + 20% style")
+            print(f"   Weights: 45% semantic + 25% structural + 20% style + 10% reasoning path")
         else:
             result['reranking_applied'] = False
             result['reranking_method'] = 'None'
@@ -690,6 +691,30 @@ Output ONLY the SQL query (no explanation, no markdown):"""
                 results['exec_retry'] = exec_retry
                 if exec_retry.get('sql_changed'):
                     final_sql = exec_retry['final_sql']
+                    results['final_sql'] = final_sql
+                    results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
+
+            # Plausibility-triggered retry: fix scalar-agg queries returning wrong row count
+            results['plausibility_retry'] = None
+            exec_after_0row = results['step10_generated']
+            plausibility = exec_after_0row.get('plausibility_check', {}) if exec_after_0row else {}
+            if (enable_execution_retry and
+                    exec_after_0row and exec_after_0row.get('success') and
+                    not plausibility.get('plausible', True) and
+                    len(exec_after_0row.get('result_rows', [])) > 0):
+                plausibility_retry = self.retry_engine.retry_with_plausibility_feedback(
+                    question=natural_query,
+                    pruned_schema=results['step1']['pruned_schema'],
+                    schema_links=results['step1']['schema_links'],
+                    current_sql=final_sql,
+                    generation_strategy=strategy.value,
+                    plausibility_issue=plausibility.get('issue', ''),
+                    db_path=db_path,
+                    db_manager=self.db_manager
+                )
+                results['plausibility_retry'] = plausibility_retry
+                if plausibility_retry.get('sql_changed'):
+                    final_sql = plausibility_retry['final_sql']
                     results['final_sql'] = final_sql
                     results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
 

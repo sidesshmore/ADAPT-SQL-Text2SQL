@@ -252,6 +252,82 @@ class ADAPTBaseline:
         ]
         return any(p in q for p in patterns)
 
+    def _generate_alternative_candidate(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        strategy_value: str
+    ) -> str:
+        """
+        Generate an alternative SQL using schema-first CoT at higher temperature.
+        Produces a structurally different candidate from the main NatSQL path.
+        Used by multi-candidate selection (Change A).
+        """
+        schema_str = ""
+        for table_name, cols in sorted(pruned_schema.items()):
+            col_desc = ", ".join(
+                f"{c['column_name']}({c.get('data_type', '?')})" for c in cols
+            )
+            schema_str += f"  {table_name}: {col_desc}\n"
+
+        fk_str = ""
+        for fk in schema_links.get('foreign_keys', []):
+            fk_str += f"  {fk['from_table']}.{fk['from_column']} = {fk['to_table']}.{fk['to_column']}\n"
+        if not fk_str:
+            fk_str = "  (none)\n"
+
+        prompt = f"""Generate a SQLite query for the following question.
+
+Question: {question}
+
+Schema:
+{schema_str}
+Foreign keys (use for JOINs):
+{fk_str}
+Approach:
+1. Identify the output columns and aggregation needed
+2. Identify the base table and any JOINs required
+3. Identify WHERE / HAVING filters
+4. Write the final SQL
+
+Output ONLY the SQL query (no explanation, no markdown):"""
+
+        try:
+            response = ollama.chat(
+                model=self.model,
+                messages=[
+                    {'role': 'system', 'content': 'You are an expert SQLite query writer. Output ONLY the SQL query.'},
+                    {'role': 'user', 'content': prompt}
+                ],
+                options={'temperature': 0.4}
+            )
+            raw = response['message']['content'].strip()
+            # Strip markdown fences if present
+            import re as _re
+            raw = _re.sub(r'```sql\s*', '', raw, flags=_re.IGNORECASE)
+            raw = _re.sub(r'```\s*', '', raw)
+            lines = raw.split('\n')
+            sql_lines = []
+            in_sql = False
+            for line in lines:
+                lu = line.strip().upper()
+                if any(lu.startswith(kw) for kw in ['SELECT', 'WITH', 'INSERT', 'UPDATE', 'DELETE']):
+                    in_sql = True
+                if in_sql:
+                    sql_lines.append(line)
+                    if line.strip().endswith(';'):
+                        break
+            if sql_lines:
+                raw = '\n'.join(sql_lines)
+            raw = raw.strip()
+            if not raw.endswith(';'):
+                raw += ';'
+            return raw
+        except Exception as e:
+            print(f"   ⚠️  Alternative candidate generation failed: {e}")
+            return ""
+
     @staticmethod
     def _is_sql_truncated(sql: str) -> bool:
         """Return True if the SQL appears to have been cut off mid-generation."""
@@ -388,7 +464,8 @@ class ADAPTBaseline:
         gold_sql: str = None,
         enable_execution: bool = False,
         enable_evaluation: bool = False,
-        enable_execution_retry: bool = True
+        enable_execution_retry: bool = True,
+        enable_multi_candidate: bool = False
     ) -> Dict:
         """
         Run complete ADAPT-SQL pipeline (Steps 1-11)
@@ -404,9 +481,10 @@ class ADAPTBaseline:
             enable_retry: Enable validation-feedback retry (Step 8)
             db_path: Path to database (required for execution)
             gold_sql: Ground truth SQL (required for evaluation)
-            enable_execution: Enable SQL execution (Step 10)
+                enable_execution: Enable SQL execution (Step 10)
             enable_evaluation: Enable evaluation (Step 11)
             enable_execution_retry: Retry when generated SQL returns 0 rows (default True)
+            enable_multi_candidate: Generate a 2nd SQL candidate and pick by execution (default False)
             
         Returns:
             Complete results dictionary with all steps
@@ -478,6 +556,45 @@ class ADAPTBaseline:
                 r6 = self.run_step6c_decomposed_generation(natural_query, results['step1'], results['step2'], results['step4'])
                 generated_sql = r6['generated_sql']
                 results['step6c'] = r6
+
+        # Multi-candidate selection: generate a 2nd SQL and pick by execution outcome
+        # Only runs when db_path is available (needed to execute candidates for comparison)
+        results['multi_candidate'] = None
+        if enable_multi_candidate and generated_sql and db_path:
+            print("\n" + "="*70)
+            print("STEP 6 (ALT): MULTI-CANDIDATE GENERATION")
+            print("="*70 + "\n")
+
+            alt_sql = self._generate_alternative_candidate(
+                question=natural_query,
+                pruned_schema=results['step1']['pruned_schema'],
+                schema_links=results['step1']['schema_links'],
+                strategy_value=strategy.value
+            )
+
+            if alt_sql:
+                primary_exec = self.db_manager.execute_query(generated_sql, db_path)
+                alt_exec = self.db_manager.execute_query(alt_sql, db_path)
+
+                primary_rows = len(primary_exec.get('result_rows', [])) if primary_exec.get('success') else -1
+                alt_rows = len(alt_exec.get('result_rows', [])) if alt_exec.get('success') else -1
+
+                # Alternative wins only when primary returns nothing and alternative returns rows
+                if primary_rows == 0 and alt_rows > 0:
+                    print(f"   ✅ Alternative candidate selected ({alt_rows} rows vs 0 for primary)")
+                    generated_sql = alt_sql
+                else:
+                    print(f"   Primary candidate kept ({primary_rows} rows vs {alt_rows} for alternative)")
+
+                results['multi_candidate'] = {
+                    'primary_sql': results.get('final_sql', generated_sql),
+                    'alt_sql': alt_sql,
+                    'primary_rows': primary_rows,
+                    'alt_rows': alt_rows,
+                    'winner': 'alt' if (primary_rows == 0 and alt_rows > 0) else 'primary'
+                }
+            else:
+                print("   ⚠️  Alternative candidate generation skipped (empty output)")
 
         # Step 6.5: SQL Normalization (if enabled)
         if self.enable_sql_normalization and generated_sql:

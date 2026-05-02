@@ -14,11 +14,13 @@ from collections import defaultdict
 
 
 class EnhancedSchemaLinker:
-    def __init__(self, model: str = "qwen3-coder"):
+    def __init__(self, model: str = "qwen3-coder", max_cols_per_table: int = 12):
         self.model = model
         # Thresholds for fuzzy matching
         self.table_match_threshold = 0.6
         self.column_match_threshold = 0.5
+        # Max columns to pass per table to generators (reduces context noise)
+        self.max_cols_per_table = max_cols_per_table
     
     def link_schema(
         self, 
@@ -151,7 +153,12 @@ class EnhancedSchemaLinker:
             'join_paths': join_paths,
             'entity_values': validated_elements.get('entity_values', {})
         }
-        
+
+        # Apply per-table column cap to reduce context noise for generators
+        pruned_schema = self._filter_to_relevant_columns(pruned_schema, schema_links, question)
+        filtered_total = sum(len(cols) for cols in pruned_schema.values())
+        print(f"✓ Column-filtered schema: {len(pruned_schema)} tables, {filtered_total} columns (top-{self.max_cols_per_table} per table)\n")
+
         # Generate comprehensive reasoning
         reasoning = self._generate_reasoning(
             question, entities, layer_details, validated_elements, 
@@ -812,6 +819,57 @@ Provide concise analysis:"""
         
         return pruned
     
+    def _filter_to_relevant_columns(
+        self,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        question: str
+    ) -> Dict[str, List[Dict]]:
+        """Cap columns per table at max_cols_per_table, keeping explicitly linked and FK cols first."""
+        if self.max_cols_per_table <= 0:
+            return pruned_schema
+
+        question_tokens = self._tokenize(question.lower())
+        fk_cols: set = set()
+        for fk in schema_links.get('foreign_keys', []):
+            fk_cols.add((fk['from_table'], fk['from_column']))
+            fk_cols.add((fk['to_table'], fk['to_column']))
+
+        filtered: Dict[str, List[Dict]] = {}
+        for table, columns in pruned_schema.items():
+            if len(columns) <= self.max_cols_per_table:
+                filtered[table] = columns
+                continue
+
+            explicitly_linked = schema_links.get('columns', {}).get(table, set())
+            scored = []
+            for col in columns:
+                name = col['column_name']
+                score = 0
+                if name in explicitly_linked:
+                    score += 4
+                if (table, name) in fk_cols:
+                    score += 3
+                name_tokens = self._tokenize(name.lower())
+                if name_tokens & question_tokens:
+                    score += 2
+                if any(kw in name.lower() for kw in ('id', 'name', 'key')):
+                    score += 1
+                scored.append((score, col))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            top_cols = [col for _, col in scored[:self.max_cols_per_table]]
+
+            # Guarantee any explicitly linked column is present even if it didn't score high
+            top_names = {c['column_name'] for c in top_cols}
+            for col in columns:
+                if col['column_name'] in explicitly_linked and col['column_name'] not in top_names:
+                    top_cols.append(col)
+
+            filtered[table] = top_cols
+
+        return filtered
+
     def _generate_reasoning(
         self,
         question: str,

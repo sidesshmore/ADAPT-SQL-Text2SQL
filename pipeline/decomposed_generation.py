@@ -466,11 +466,6 @@ Output ONLY the SQL query:"""
         prompt += "OUTER: [main selection]\n"
         prompt += "INNER: [subquery]\n"
         prompt += "PATTERN: [how they connect]\n\n"
-
-        hint = self._detect_semantic_hints(question)
-        if hint:
-            prompt += f"Semantic hint: {hint}\n\n"
-
         prompt += "Generate the intermediate representation:\n"
 
         return self._generate_with_llm(

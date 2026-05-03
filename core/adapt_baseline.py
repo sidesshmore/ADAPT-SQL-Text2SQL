@@ -45,6 +45,7 @@ from pipeline.execute_compare import DatabaseManager
 from pipeline.evaluation import Text2SQLEvaluator
 from pipeline.sql_normalizer import normalize_sql_post_generation
 from utils.structural_similarity import enhance_example_selection
+from pipeline.checker_chain import CheckerChain
 
 
 class ADAPTBaseline:
@@ -672,10 +673,31 @@ Output ONLY the SQL query (no explanation, no markdown):"""
                 'reasoning': 'No SQL was generated in Step 6'
             }
         
+        # E': Deterministic Checker Chain (DeepEye-SQL)
+        # Run 6 rule-based checkers and inject any directive into step7 errors
+        # so that the retry engine receives an explicit correction instruction.
+        results['checker_chain'] = None
+        if generated_sql and enable_retry:
+            checker = CheckerChain(schema_links=results['step1']['schema_links'])
+            check_result = checker.run(
+                generated_sql,
+                db_path=db_path if enable_execution else None,
+                db_manager=self.db_manager if enable_execution else None
+            )
+            results['checker_chain'] = check_result
+            if not check_result['passed']:
+                print(f"⚠️  Checker '{check_result['checker']}' failed — injecting directive into retry")
+                results['step7']['errors'].append({
+                    'type': 'CHECKER_CHAIN',
+                    'message': check_result['directive'],
+                    'severity': 'HIGH'
+                })
+                results['step7']['is_valid'] = False
+
         # Step 8: Validation-Feedback Retry (if enabled and needed)
         final_sql = generated_sql
         final_is_valid = results['step7']['is_valid']
-        
+
         if enable_retry and generated_sql:
             step8_result = self.run_step8_retry(
                 natural_query,

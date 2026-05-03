@@ -104,7 +104,25 @@ class EnhancedSchemaLinker:
 
         print(f"✓ LLM identified {len(llm_elements['tables'])} tables")
         print(f"✓ LLM identified {sum(len(cols) for cols in llm_elements['columns'].values())} columns\n")
-        
+
+        # =================================================================
+        # LAYER 2b: REVERSED SCHEMA LINKING (DeepEye-SQL)
+        # Generate a draft SQL first, parse which tables/columns it used,
+        # union with direct-linking results to recover missed schema items.
+        # =================================================================
+        print("LAYER 2b: Reversed Schema Linking")
+        print("-" * 60)
+        reversed_elements = self._reversed_schema_linking(
+            question, schema_dict, foreign_keys
+        )
+        added_tables = reversed_elements['tables'] - llm_elements['tables']
+        llm_elements['tables'] |= reversed_elements['tables']
+        for tbl, cols in reversed_elements['columns'].items():
+            if tbl not in llm_elements['columns']:
+                llm_elements['columns'][tbl] = set()
+            llm_elements['columns'][tbl] |= cols
+        print(f"✓ Reversed linking added {len(added_tables)} new table(s): {added_tables or 'none'}\n")
+
         # =================================================================
         # LAYER 3: POST-VALIDATION
         # =================================================================
@@ -396,14 +414,78 @@ Provide concise analysis:"""
         """Format candidate columns for display"""
         if not columns_dict:
             return "None"
-        
+
         parts = []
         for table, cols in sorted(columns_dict.items()):
             if cols:
                 parts.append(f"{table}: {', '.join(sorted(cols))}")
-        
+
         return '; '.join(parts) if parts else "None"
-    
+
+    def _reversed_schema_linking(
+        self,
+        question: str,
+        schema_dict: Dict[str, List[Dict]],
+        foreign_keys: List[Dict]
+    ) -> Dict:
+        """Layer 2b: Generate a draft SQL, parse schema elements from it (DeepEye-SQL).
+
+        Generates a throwaway draft SQL with no schema hints, then unions the
+        tables/columns it references back into the direct-linking result.
+        Targets the 41.6% of hard failures where the FROM clause is wrong.
+        """
+        schema_str = ""
+        for table, cols in schema_dict.items():
+            col_names = ", ".join(c['column_name'] for c in cols)
+            schema_str += f"{table}({col_names})\n"
+
+        prompt = (
+            f"Schema:\n{schema_str}\n"
+            f"Question: {question}\n\n"
+            "Write a SQL query. Output ONLY the SQL, no explanation:"
+        )
+
+        try:
+            response = ollama.chat(
+                model=self.model,
+                messages=[{'role': 'user', 'content': prompt}],
+                options={'temperature': 0}
+            )
+            draft_sql = response['message']['content']
+        except Exception:
+            return {'tables': set(), 'columns': {}}
+
+        # Strip markdown fences if present
+        draft_sql = re.sub(r'```(?:sql)?', '', draft_sql, flags=re.IGNORECASE).strip().rstrip('`').strip()
+
+        # Parse tables from FROM / JOIN clauses
+        tables_found: Set[str] = set()
+        schema_tables_lower = {t.lower(): t for t in schema_dict}
+        for m in re.finditer(r'\b(?:FROM|JOIN)\s+(\w+)', draft_sql, re.IGNORECASE):
+            raw = m.group(1)
+            if raw in schema_dict:
+                tables_found.add(raw)
+            elif raw.lower() in schema_tables_lower:
+                tables_found.add(schema_tables_lower[raw.lower()])
+            else:
+                closest = self._find_closest_match(raw, schema_dict.keys(), threshold=0.75)
+                if closest:
+                    tables_found.add(closest)
+
+        # Parse columns from SQL tokens, attributed to every found table that owns them
+        columns_found: Dict[str, Set[str]] = {}
+        for table in tables_found:
+            valid_cols = {c['column_name'] for c in schema_dict[table]}
+            valid_cols_lower = {c.lower(): c for c in valid_cols}
+            for m in re.finditer(r'\b(\w+)\b', draft_sql):
+                tok = m.group(1)
+                if tok in valid_cols:
+                    columns_found.setdefault(table, set()).add(tok)
+                elif tok.lower() in valid_cols_lower:
+                    columns_found.setdefault(table, set()).add(valid_cols_lower[tok.lower()])
+
+        return {'tables': tables_found, 'columns': columns_found}
+
     # =====================================================================
     # LAYER 3: POST-VALIDATION
     # =====================================================================

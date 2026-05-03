@@ -14,7 +14,8 @@ class DualSimilaritySelector:
     def search_similar_examples(
         self,
         question: str,
-        k: int = 10
+        k: int = 10,
+        sql_hint: str = None,
     ) -> Dict:
         """
         STEP 4: Similarity Search in Vector Database
@@ -39,7 +40,7 @@ class DualSimilaritySelector:
         print(f"Searching for top {k} similar examples...")
         
         # Get similar examples from vector store
-        similar_examples = self.vector_store.search(question, k=k)
+        similar_examples = self.vector_store.search(question, k=k, sql_hint=sql_hint)
         
         print(f"✓ Found {len(similar_examples)} similar examples")
         

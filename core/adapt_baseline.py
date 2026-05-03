@@ -157,10 +157,13 @@ class ADAPTBaseline:
                 'total_found': 0
             }
         
-        # Get similar examples from vector store
+        # Get similar examples from vector store.
+        # Pass preliminary_sql as sql_hint so the FAISS query embeds
+        # question + SQL skeleton — symmetric with how the index was built.
         result = self.example_selector.search_similar_examples(
             natural_query,
-            k=k
+            k=k,
+            sql_hint=preliminary_sql,
         )
         
         # Apply DAIL-SQL structural + style reranking if enabled

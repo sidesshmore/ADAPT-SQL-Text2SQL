@@ -4,6 +4,7 @@ Can be run directly to build the index: python vector_store.py
 """
 import json
 import os
+import re
 import time
 import numpy as np
 import faiss
@@ -26,12 +27,32 @@ def _get_ollama_client():
 
 
 class SQLVectorStore:
+    # SQL keywords that signal query structure (no table/column names)
+    _SKELETON_KEYWORDS = {
+        'SELECT', 'FROM', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS',
+        'WHERE', 'GROUP', 'BY', 'HAVING', 'ORDER', 'LIMIT', 'DISTINCT',
+        'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'NOT', 'IN', 'EXISTS',
+        'UNION', 'INTERSECT', 'EXCEPT', 'AS', 'ON', 'AND', 'OR',
+    }
+
     def __init__(self, embedding_model: str = "nomic-embed-text"):
         """Initialize vector store with Nomic embeddings"""
         self.embedding_model = embedding_model
         self.index = None
         self.examples = []
         self.dimension = None
+
+    @classmethod
+    def _extract_sql_skeleton(cls, sql: str) -> str:
+        """Return only the structural SQL keywords from a query.
+
+        Strips table names, column names, string literals, and numbers —
+        keeps only the clause/aggregation keywords that signal SQL structure.
+        Embedding question + skeleton makes retrieval sensitive to both
+        semantic intent and structural pattern (DAIL-SQL approach).
+        """
+        tokens = re.findall(r'\b[A-Za-z_]\w*\b', sql.upper())
+        return ' '.join(t for t in tokens if t in cls._SKELETON_KEYWORDS)
 
     def _get_embedding(self, text: str, retries: int = 3) -> np.ndarray:
         """Get embedding vector for text using Nomic, with retry on transient errors."""
@@ -76,7 +97,9 @@ class SQLVectorStore:
                 if not question:
                     continue
 
-                embedding = self._get_embedding(question)
+                skeleton = self._extract_sql_skeleton(example.get('query', ''))
+                embed_text = f"{question} {skeleton}".strip() if skeleton else question
+                embedding = self._get_embedding(embed_text)
                 if embedding is not None:
                     embeddings.append(embedding)
                     valid_examples.append(example)
@@ -175,18 +198,34 @@ class SQLVectorStore:
             return False
     
     def search(
-        self, 
-        query: str, 
-        k: int = 5
+        self,
+        query: str,
+        k: int = 5,
+        sql_hint: str = None,
     ) -> List[Dict]:
-        """Search for similar examples"""
+        """Search for similar examples.
+
+        Args:
+            query: Natural language question.
+            k: Number of results to return.
+            sql_hint: Optional preliminary SQL (e.g. from Step 3). Its skeleton
+                is appended to the query embedding so retrieval is sensitive to
+                both semantic intent and structural pattern — matching how the
+                index was built.
+        """
         if self.index is None:
             print("❌ Index not loaded")
             return []
-        
+
         try:
+            if sql_hint:
+                skeleton = self._extract_sql_skeleton(sql_hint)
+                embed_query = f"{query} {skeleton}".strip() if skeleton else query
+            else:
+                embed_query = query
+
             # Get query embedding
-            query_embedding = self._get_embedding(query)
+            query_embedding = self._get_embedding(embed_query)
             if query_embedding is None:
                 return []
             

@@ -386,7 +386,8 @@ def main():
                         db_path=str(db_path) if enable_execution else None,
                         gold_sql=gold_sql if enable_evaluation else None,
                         enable_execution=enable_execution,
-                        enable_evaluation=enable_evaluation
+                        enable_evaluation=enable_evaluation,
+                        enable_multi_candidate=enable_execution,
                     )
                     
                     results.append({

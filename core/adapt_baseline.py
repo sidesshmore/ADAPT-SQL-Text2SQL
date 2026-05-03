@@ -263,22 +263,33 @@ class ADAPTBaseline:
         selected_examples: List[Dict] = None
     ) -> str:
         """
-        Generate an alternative SQL using schema-first CoT at higher temperature.
-        Uses a direct SQL generation path (no NatSQL) to diversify from the primary
-        NatSQL-based candidate. Examples are injected for few-shot grounding.
+        Generate an alternative SQL using Graph-of-Thought (GoT) reasoning.
+        Explicitly builds a table relationship graph, traverses it to identify
+        the join path, then generates SQL — structurally different from the
+        primary NatSQL-based candidate (AP-SQL GoT approach).
         """
+        # Build table relationship graph description
+        fks = schema_links.get('foreign_keys', [])
+        graph_nodes = sorted(pruned_schema.keys())
+        graph_edges = []
+        for fk in fks:
+            ft = fk.get('from_table') or fk.get('source_table', '')
+            fc = fk.get('from_column') or fk.get('source_column', '')
+            tt = fk.get('to_table') or fk.get('target_table', '')
+            tc = fk.get('to_column') or fk.get('target_column', '')
+            if ft and tt:
+                graph_edges.append(f"  {ft}.{fc} ── {tt}.{tc}")
+
+        graph_str = "Nodes: " + ", ".join(graph_nodes) + "\n"
+        graph_str += "Edges (FK links):\n"
+        graph_str += ("\n".join(graph_edges) if graph_edges else "  (no foreign keys)")
+
         schema_str = ""
         for table_name, cols in sorted(pruned_schema.items()):
             col_desc = ", ".join(
                 f"{c['column_name']}({c.get('data_type', '?')})" for c in cols
             )
             schema_str += f"  {table_name}: {col_desc}\n"
-
-        fk_str = ""
-        for fk in schema_links.get('foreign_keys', []):
-            fk_str += f"  {fk['from_table']}.{fk['from_column']} = {fk['to_table']}.{fk['to_column']}\n"
-        if not fk_str:
-            fk_str = "  (none)\n"
 
         examples_str = ""
         if selected_examples:
@@ -297,33 +308,33 @@ class ADAPTBaseline:
         if examples_str:
             few_shot_section = f"\nSimilar examples:\n{examples_str}"
 
-        prompt = f"""Generate a SQLite query for the following question.
+        prompt = f"""Generate a SQLite query for the following question using Graph-of-Thought reasoning.
 
 Question: {question}
 
 Schema:
 {schema_str}
-Foreign keys (use for JOINs):
-{fk_str}{few_shot_section}
-Approach:
-1. Identify the output columns and aggregation needed
-2. Identify the base table and any JOINs required
-3. Identify WHERE / HAVING filters
-4. Write the final SQL
+Table Relationship Graph:
+{graph_str}
+{few_shot_section}
+Reasoning steps:
+STEP 0 — Traverse the graph: Which tables are needed? Which FK edges connect them?
+STEP 1 — Output: What columns appear in SELECT? Is aggregation (COUNT/SUM/AVG/MAX/MIN) needed?
+STEP 2 — Filters: What goes in WHERE or HAVING?
+STEP 3 — Write the SQL using the join path identified in STEP 0.
 
-Output ONLY the SQL query (no explanation, no markdown):"""
+Output ONLY the final SQL query (no explanation, no markdown):"""
 
         try:
             response = ollama.chat(
                 model=self.model,
                 messages=[
-                    {'role': 'system', 'content': 'You are an expert SQLite query writer. Output ONLY the SQL query.'},
+                    {'role': 'system', 'content': 'You are an expert SQLite query writer. Follow the Graph-of-Thought steps, then output ONLY the SQL query.'},
                     {'role': 'user', 'content': prompt}
                 ],
-                options={'temperature': 0.4}
+                options={'temperature': 0.35}
             )
             raw = response['message']['content'].strip()
-            # Strip markdown fences if present
             import re as _re
             raw = _re.sub(r'```sql\s*', '', raw, flags=_re.IGNORECASE)
             raw = _re.sub(r'```\s*', '', raw)

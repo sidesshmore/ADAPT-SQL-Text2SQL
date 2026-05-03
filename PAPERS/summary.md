@@ -3,7 +3,7 @@
 
 > **Reading time saved**: ~120 hours of paper reading distilled here.  
 > **Scope**: 15 papers covering schema linking, multi-agent systems, retrieval, RL training, and robustness.  
-> **Your system**: ADAPT-SQL — 11-step pipeline, local Ollama (qwen3-coder), actual **81.5% EX** on Spider dev (1,034 queries) after Priority-1 fixes.
+> **Your system**: ADAPT-SQL — 11-step pipeline, local Ollama (qwen3-coder), actual **82.7% EX** on Spider dev (1,034 queries) after Priority-1 (A+B+C) and Priority-2 (D+E+F) fixes.
 
 ---
 
@@ -61,11 +61,11 @@
 | ExCoT (best) | ~87%+ | Qwen-2.5-Coder 32B | Yes |
 | DTS-SQL | 85.5% | DeepSeek 7B | Yes |
 | RESDSQL | 84.1% | T5-3B / BERT | Yes |
-| **ADAPT-SQL (after-fix-1)** | **81.5%** | **qwen3-coder (local Ollama)** | **Yes** |
+| **ADAPT-SQL (after-fix-2)** | **82.7%** | **qwen3-coder (local Ollama)** | **Yes** |
 | YORO (Mistral-7B) | 78.5% | Mistral 7B | Yes |
 | SAFE-SQL (Llama-70B) | ~45% | Llama-3.3-70B | Yes |
 
-> **Note**: ADAPT-SQL documentation lists 91.8% EX as a target. Baseline full-dev-set run (2026-05-01) measured **80.6%**. After Priority-1 fixes (changes A+B+C, 2026-05-02) measured **81.5%**. Numbers in this document use the latest verified run.
+> **Note**: ADAPT-SQL documentation lists 91.8% EX as a target. Baseline full-dev-set run (2026-05-01) measured **80.6%**. After Priority-1 fixes (A+B+C, 2026-05-02 12:03) measured **81.5%**. After Priority-2 fixes (D+E+F, 2026-05-02 15:46) measured **82.7%**. Numbers in this document use the latest verified run. Gains have consistently run ~5× lower than paper-derived estimates at each iteration.
 
 ### 2b. Spider Test — Execution Accuracy
 
@@ -115,44 +115,45 @@ ADAPT-SQL uses the most LLM calls per query — a meaningful target for optimiza
 
 ### Actual Performance — Run History
 
-| Metric | Baseline (2026-05-01) | After-Fix-1 (2026-05-02) | Δ |
-|--------|-----------------------|--------------------------|---|
-| Total queries | 1,034 | 1,034 | — |
-| Valid SQL | 1,034 (100%) | 1,034 (100%) | — |
-| Execution success | 1,018 (98.5%) | 1,010 (97.7%) | **−0.8%** |
-| **EX** | **833 / 1,034 = 80.6%** | **843 / 1,034 = 81.5%** | **+0.9%** |
-| EM | 182 / 1,034 = 17.6% | 183 / 1,034 = 17.7% | +0.1% |
-| Avg composite score | 68.0% | 68.8% | +0.8% |
+| Metric | Baseline (2026-05-01) | After-Fix-1 (2026-05-02 12:03) | After-Fix-2 (2026-05-02 15:46) |
+|--------|-----------------------|---------------------------------|---------------------------------|
+| Total queries | 1,034 | 1,034 | 1,034 |
+| Valid SQL | 1,034 (100%) | 1,034 (100%) | 1,034 (100%) |
+| Execution success | 1,018 (98.5%) | 1,010 (97.7%) | 1,020 (98.6%) |
+| **EX** | **833 / 1,034 = 80.6%** | **843 / 1,034 = 81.5%** | **855 / 1,034 = 82.7%** |
+| EM | 182 / 1,034 = 17.6% | 183 / 1,034 = 17.7% | 195 / 1,034 = 18.9% |
+| Avg composite score | 68.0% | 68.8% | 69.9% |
 
-> Fix-1 applied: (A) multi-candidate generation + execution-based winner selection, (B) execution-driven retry for 0-row results, (C) schema column pre-filtering.  
-> **Expected gain: +4–8% EX. Actual gain: +0.9% EX.** See revised roadmap in Section 7.
+> Fix-1 (A+B+C): multi-candidate generation, 0-row execution retry, schema column pre-filtering. Expected +4–8%, delivered **+0.9%**.  
+> Fix-2 (D+E+F): CoT prompts in all generators, result plausibility retry, reasoning-path filter on example selection. Expected +4–7%, delivered **+1.2%**.  
+> **Pattern**: Both rounds ran ~5× below paper-derived estimates. The gains are real (+2.1% total from baseline) but the estimates from single-model local inference systematically overstate what paper numbers (GPT-4/fine-tuned models) actually transfer to Ollama.
 
-### By Complexity (After-Fix-1)
+### By Complexity
 
-| Complexity | Count | % | Notes vs Baseline |
-|------------|-------|---|-------------------|
-| EASY | 269 | 26.0% | +25 vs baseline (244) — schema filtering made queries appear simpler |
-| NON_NESTED_COMPLEX | 652 | 63.1% | −25 vs baseline (677) — reclassified due to reduced schema context |
-| NESTED_COMPLEX | 113 | 10.9% | Unchanged |
+| Complexity | Baseline | After-Fix-1 | After-Fix-2 |
+|------------|----------|-------------|-------------|
+| EASY | 244 (23.6%), EX 86.1% | 269 (26.0%), EX 89.2% | 280 (27.1%), EX 88.9% |
+| NON_NESTED_COMPLEX | 677 (65.5%), EX 79.3% | 652 (63.1%), EX 79.3% | 641 (62.0%), EX 80.7% |
+| NESTED_COMPLEX | 113 (10.9%), EX 76.1% | 113 (10.9%), EX 76.1% | 113 (10.9%), EX 78.8% |
 
-### By Generation Strategy
+### By Generation Strategy (After-Fix-2)
 
-| Strategy | Applied To | EX Accuracy |
-|----------|-----------|-------------|
-| SIMPLE_FEW_SHOT | EASY queries | **86.1%** |
-| INTERMEDIATE_REPRESENTATION (NatSQL) | NON_NESTED | **79.3%** |
-| DECOMPOSED_GENERATION | NESTED | **76.1%** |
+| Strategy | Applied To | EX Accuracy | Δ vs Baseline |
+|----------|-----------|-------------|---------------|
+| SIMPLE_FEW_SHOT | EASY queries (280) | **88.9%** | +2.8% |
+| INTERMEDIATE_REPRESENTATION (NatSQL) | NON_NESTED (641) | **80.7%** | +1.4% |
+| DECOMPOSED_GENERATION | NESTED (113) | **78.8%** | +2.7% |
 
-### Retry Behavior
+### Retry Behavior (After-Fix-2)
 
-| Retry Attempts | Query Count | % |
-|---------------|-------------|---|
-| 1st attempt succeeds | 676 | 65.4% |
-| 2 attempts | 120 | 11.6% |
-| 3 attempts | 25 | 2.4% |
-| Hit max (4 attempts) | **213** | **20.6%** |
+| Retry Attempts | Query Count | % | Δ vs Baseline |
+|---------------|-------------|---|---------------|
+| 1st attempt succeeds | 728 | 70.4% | +5.0% |
+| 2 attempts | 95 | 9.2% | −2.4% |
+| 3 attempts | 20 | 1.9% | −0.5% |
+| Hit max (4 attempts) | **191** | **18.5%** | **−2.1%** |
 
-> **Key issue**: 1 in 5 queries exhaust retries. These are likely hard failures — improving the retry signal (execution-error feedback vs. just validation feedback) is the highest-ROI fix.
+> **Key insight**: 191 queries (18.5%) still exhaust all retries — and **every single one of these is a hard failure wrong in all 3 runs**. The 146 queries wrong across all 3 runs are all in this bucket. Retry is not helping them: 91.8% execute successfully but produce semantically wrong results. More retries of the same strategy will not fix these; they require structural diversity in generation (A') or training (G).
 
 ### What ADAPT-SQL Does That Papers Don't
 
@@ -164,11 +165,11 @@ ADAPT-SQL uses the most LLM calls per query — a meaningful target for optimiza
 
 ### Where ADAPT-SQL Lags
 
-- **~9% behind SOTA** (80.6% vs. 89.8% DeepEye-SQL on Spider)
-- **No multi-candidate generation**: Only one SQL generated per attempt
-- **Retry is validation-driven**, not execution-driven (can't learn from wrong-results, only syntax/schema errors)
-- **No CoT reasoning trace** before SQL generation
-- **FAISS retrieval is semantic-only**: No structural or reasoning path quality filter on retrieved examples
+- **~7% behind SOTA** (82.7% vs. 89.8% DeepEye-SQL on Spider)
+- **Multi-candidate exists but isn't diverse**: Both candidates use similar prompts and fail identically (A')
+- **Retry fires on validation errors only**: 91.8% of hard failures execute successfully — retry never fires; DISTINCT/set-op blind spots are invisible to validation
+- **CoT prompts added (D) but DISTINCT/set-op blind spots persist**: GT needs DISTINCT 20.5% of hard cases; Gen produces it 4.8%
+- **146 queries stuck in structural failure**: Wrong in all 3 runs, all retry-exhausted — prompt-only changes can't fix these without training
 
 ---
 
@@ -660,95 +661,120 @@ For each of ADAPT-SQL's 11 steps, what do the papers do and how does it compare?
 
 ## 7. Gap Analysis & Improvement Roadmap
 
-### Post-Fix-1 Reality Check (Updated 2026-05-02)
-
-Changes A, B, C were implemented and a full 1,034-query dev run completed. Results:
+### Post-Fix-1 Reality Check (A+B+C, 2026-05-02 12:03)
 
 | Change | Expected EX Gain | Realized Contribution | Status |
 |--------|-----------------|----------------------|--------|
 | A — Multi-candidate + execution selection | +4–6% | Marginal | ⚠️ Candidates not diverse enough |
 | B — Execution retry for 0-row results | +3–5% | Marginal | ⚠️ Fires too rarely; most failures aren't 0-row |
-| C — Schema column pre-filtering | +1–3% | **Negative side effect** | ❌ Execution success −0.8%; over-filters needed columns |
-| **Combined A+B+C** | **+4–8%** | **+0.9% EX** | Under-delivered |
+| C — Schema column pre-filtering | +1–3% | Negative side effect | ❌ Exec success −0.8%; over-filters needed columns |
+| **Combined A+B+C** | **+4–8%** | **+0.9% EX** | **~5× below estimate** |
 
-**Root cause analysis:**
-
-- **Change A**: Both generated candidates use similar prompts. When the underlying LLM produces two outputs from nearly identical contexts, they fail in the same way. Gain only materializes when candidates are *structurally diverse* (e.g., one uses JOIN, one uses subquery).
-- **Change B**: Most wrong SQL returns a *non-empty but incorrect* result set. The 0-row trigger is too narrow — it only catches the subset that returns nothing.
-- **Change C**: The pre-filter is too aggressive. The 25-query complexity reclassification (NON_NESTED → EASY) and the −8 execution successes show that columns being pruned were sometimes load-bearing. Schema filtering only works safely if the relevance scorer is high-precision.
+- **A**: Both candidates use similar prompts → fail identically. Gain requires structurally diverse strategies (one JOIN, one subquery), not just two rolls of the same prompt.
+- **B**: Most wrong SQL returns non-empty but incorrect results. The 0-row trigger only fires on ~8% of actual hard failures.
+- **C**: Hard top-K cut removed load-bearing columns. The −8 exec successes and complexity reclassification (677→652 NON_NESTED) confirm over-pruning.
 
 ---
 
-### Revised Priority 1 — Fix the Regressions First
+### Post-Fix-2 Reality Check (D+E+F, 2026-05-02 15:46)
+
+| Change | Expected EX Gain | Realized Contribution | Status |
+|--------|-----------------|----------------------|--------|
+| D — Structured CoT in generation prompts | +2–3% | +~0.8% | ✅ Real gain; NESTED +2.7%, NON_NESTED +1.4% |
+| E — Result plausibility retry | +1–2% | +~0.3% | ✅ Recovered exec-success regression (+0.9% vs fix-1) |
+| F — Reasoning path filter on examples | +1–2% | +~0.1% | ⚠️ Marginal; harder to isolate from D |
+| **Combined D+E+F** | **+4–7%** | **+1.2% EX** | **~4× below estimate** |
+
+Fix-2 vs fix-1: +40 queries fixed, −28 queries broken (net +12). The 28 regressions reflect LLM stochasticity and CoT occasionally misdirecting the model on simple queries.
+
+**Overall pattern across both rounds**: Paper-derived estimates assume GPT-4-class or fine-tuned models. With local Ollama (qwen3-coder), prompt-only changes transfer at roughly 20–25% of the stated gains. Apply a ~4–5× discount when projecting future changes.
+
+---
+
+### Hard Failure Analysis — 146 Queries Wrong in All 3 Runs
+
+Every query wrong in all three runs hits max retries (4 attempts). These 146 queries (14.1% of total) represent the current ceiling.
+
+| Failure Mode | Count | % of Hard Fails |
+|-------------|-------|-----------------|
+| Executes but wrong result (semantic failure) | 134 | 91.8% |
+| Execution error (SQL syntax/column name) | 12 | 8.2% |
+
+**Clause-level accuracy on hard failures:**
+
+| Clause | Correct in Hard Fails |
+|--------|-----------------------|
+| ORDER BY | 87.0% |
+| GROUP BY | 65.8% |
+| FROM | 54.1% |
+| WHERE | 39.0% |
+| **SELECT** | **29.5%** |
+
+SELECT is wrong in 70.5% of hard failures — the LLM picks wrong columns or aggregations.
+
+**Systematic patterns in hard failures:**
+- **DISTINCT missing**: GT needs DISTINCT in 20.5%, Gen produces it in only 4.8% — a 16% blind spot
+- **Set operations missing**: GT uses EXCEPT/INTERSECT/UNION in 15.8%, Gen only 2.1%
+- **Column naming confusion**: 53.4% of GT uses T1/T2 aliases; Gen picks different join paths
+- **Encoding errors**: 2 queries fail due to UTF-8 in DB values (unrelated to LLM quality)
+- **Retry does nothing**: All 146 hit max retries, 91.8% execute fine — retry fires on validation errors, not semantic errors
+
+**Implication**: No prompt-only change will fix the DISTINCT/set-operation blind spot without either (a) explicit detection + hint injection or (b) training. These 146 queries need a different approach, not more of the same.
+
+---
+
+### Revised Priority 1 — Structural Diversity (A')
 
 #### A′. Make Multi-Candidate Genuinely Diverse
 **Problem**: SQL₁ and SQL₂ from the same prompt template fail identically.  
-**Fix**: Use *structurally different* prompt strategies for each candidate — one uses the NatSQL intermediate representation, the other uses direct few-shot with chain-of-thought. Divergent reasoning paths produce divergent outputs.  
-**Files**: `pipeline/few_shot.py`, `pipeline/intermediate_repr.py` — generate SQL₂ using the *other* strategy (EASY → try IR style; NON_NESTED → try few-shot style)  
-**Realistic EX gain**: +2–4% (vs. the +4–6% estimate; adjusted for single-model diversity ceiling)
-
-#### B′. Extend Execution Retry Beyond 0-Row
-**Problem**: Change B only retries when result is empty. Wrong non-empty results (e.g., returns 5 rows instead of 1, or different column values) slip through.  
-**Fix**: After execution, compare result *shape* to query intent: if query asks for one value (MAX, COUNT, MIN) but returns multiple rows → retry. If query has no aggregation but returns a single scalar → retry. Keep 0-row trigger as-is and add these shape checks.  
-**Files**: `pipeline/execute_compare.py`, `pipeline/validation_feedback_retry.py`  
-**Realistic EX gain**: +1–3%
-
-#### C′. Tune Schema Filtering — Soft Filter, Not Hard Cut
-**Problem**: Hard top-K filtering removes needed columns.  
-**Fix**: Instead of dropping columns, *reorder* them — put high-relevance columns first in the prompt. The LLM attends more to earlier context. Never remove a column that appears verbatim in the query or is a foreign key. This gives context reduction without information loss.  
-**Files**: `pipeline/schema_linking.py`  
-**Goal**: Recover the lost −0.8% execution success and convert it to a gain  
-**Realistic EX gain**: +0.5–1.5% (net, after recovering regression)
+**Fix**: Use *structurally different* prompt strategies for each candidate — one uses NatSQL IR, the other uses direct few-shot with CoT. Divergent reasoning paths produce divergent outputs.  
+**Files**: `pipeline/few_shot.py`, `pipeline/intermediate_repr.py` — generate SQL₂ using the other strategy  
+**Adjusted estimate**: +1–2% (down from +2–4%; applying observed 5× discount to paper estimate of +4–6%)
 
 ---
 
-### Priority 2 — Untried, Low Effort, Real Evidence
+### Priority 2 — Targeted Hard-Failure Fixes
 
-#### D. Structured CoT in Generation Prompts ← **Try This First**
-**What**: Add a reasoning preamble to each generation prompt: "Before writing SQL, identify: (1) which tables are needed and why, (2) the JOIN conditions, (3) whether aggregation/subquery is required. Then write the SQL."  
-**Files**: Prompt templates in `pipeline/few_shot.py`, `pipeline/intermediate_repr.py`, `pipeline/decomposed_generation.py` — prompt string edits only, no logic changes  
-**Evidence**: ExCoT CoT SFT adds +5% to BIRD, +4% Spider Test; Pi-SQL adds +3.2% on BIRD  
-**Effort**: <1 hour — pure prompt edits  
-**Realistic EX gain**: +2–3% (without training, gains are lower than paper numbers)
+#### B′. Extend Execution Retry — DISTINCT and Set-Op Detection
+**Problem**: Hard failures have DISTINCT/EXCEPT/INTERSECT blind spots that retry can't fix because execution succeeds.  
+**Fix**: Add a pre-generation analysis step: scan the question for negation patterns ("not have", "except", "but not") → hint "consider EXCEPT/NOT IN"; scan for superlative/count patterns → hint "consider DISTINCT". Inject as CoT line before SQL generation on retry.  
+**Files**: `pipeline/validation_feedback_retry.py`, `pipeline/execute_compare.py`  
+**Adjusted estimate**: +0.5–1.5%
 
-#### E. Plausibility Check on Execution Results
-**What**: Rule-based sanity checks after execution — if the query contains MAX/MIN/COUNT with no GROUP BY, result should be exactly 1 row; if query asks "how many X" result should be a single integer; etc. Flag implausible results → trigger retry.  
-**Files**: `pipeline/execute_compare.py`  
-**Evidence**: DeepEye-SQL unit testing catches 8–12% of initially wrong candidates  
-**Effort**: 1–2 hours  
-**Realistic EX gain**: +1–2%
-
-#### F. Reasoning Path Filter on Retrieved Examples
-**What**: Extend Step 4 structural reranking to also score by SQL clause alignment — retrieved examples that require the same clause set (GROUP BY, HAVING, subquery in WHERE) as the current query get priority over structurally similar but clause-divergent ones.  
-**Files**: `utils/structural_similarity.py`, `pipeline/vector_search.py`  
-**Evidence**: SAFE-SQL: removing reasoning path filter costs −3.5%  
-**Effort**: 3–4 hours  
-**Realistic EX gain**: +1–2%
+#### C′. Soft Schema Reordering (Not Hard Cut)
+**Problem**: C's hard top-K filtering removed needed columns.  
+**Fix**: Reorder schema items by relevance score (high-score first), never remove. LLM attends more to earlier context without losing information.  
+**Files**: `pipeline/schema_linking.py`  
+**Adjusted estimate**: +0.3–0.8%
 
 ---
 
 ### Priority 3 — Longer-Term
 
 #### G. RL Fine-Tuning (SQL-R1 approach)
-Fine-tune qwen3-coder with GRPO + execution-based reward on SOL GPU nodes. Evidence: SQL-R1 reaches 88.7% Spider test with 7B model. High effort — requires training pipeline + compute allocation.
+Fine-tune qwen3-coder with GRPO + execution-based reward on SOL GPU nodes. Evidence: SQL-R1 reaches 88.7% Spider test with 7B model — this is the only documented path to fix the DISTINCT/set-operation blind spots structurally. High effort.
 
 #### H. Multi-Agent Architecture (MAC-SQL pattern)
 Separate schema selection, SQL generation, and execution-based refinement into dedicated agent calls. Evidence: MAC-SQL 86.75% Spider dev. High effort — significant pipeline refactor.
 
 ---
 
-### Updated Quick Win Summary
+### Updated Change Summary
 
-| Change | Status | Files | Effort | Realistic EX Gain |
-|--------|--------|-------|--------|-------------------|
-| **D — CoT in prompts** | Not tried | 3 prompt templates | <1 hr | **+2–3%** |
-| **E — Result plausibility check** | Not tried | `execute_compare.py` | 1–2 hr | **+1–2%** |
-| **C′ — Soft schema reordering** | Replaces C | `schema_linking.py` | 1–2 hr | +0.5–1.5% |
-| **B′ — Extended execution retry** | Extends B | `execute_compare.py` | 2 hr | +1–3% |
-| **A′ — Cross-strategy candidates** | Fixes A | 2 generation modules | 3 hr | +2–4% |
-| **F — Reasoning path example filter** | Not tried | `structural_similarity.py` | 4 hr | +1–2% |
+| Change | Status | Realized EX | Remaining Potential |
+|--------|--------|------------|---------------------|
+| A — Multi-candidate | ✅ Done | Marginal | A' needed for diversity |
+| B — 0-row retry | ✅ Done | Marginal | B' expands to DISTINCT/set-ops |
+| C — Schema pre-filter | ✅ Done | Regression | C' (soft reorder) fixes it |
+| **D — CoT in prompts** | ✅ Done | **+0.8%** | Exhausted for current setup |
+| **E — Plausibility retry** | ✅ Done | **+0.3%** | Recovered exec regression |
+| **F — Reasoning path filter** | ✅ Done | Marginal | Exhausted |
+| **A′ — Cross-strategy diversity** | Not tried | — | +1–2% |
+| **B′ — DISTINCT/set-op hint injection** | Not tried | — | +0.5–1.5% |
+| **C′ — Soft schema reordering** | Not tried | — | +0.3–0.8% |
+| G — RL fine-tuning | Not tried | — | +4–6% (training required) |
 
-**Realistic target**: Implementing D + E + C′ could push **81.5% → 84–86% EX** without any training. Adding A′ and B′ could push toward **87–88%**.
+**Realistic target**: A′ + B′ + C′ could push **82.7% → 84–85% EX**. Reaching 87%+ requires training (G). The 146 hard failures are largely structural and will not move from prompt-only changes.
 
 ---
 

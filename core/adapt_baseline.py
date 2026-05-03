@@ -258,12 +258,13 @@ class ADAPTBaseline:
         question: str,
         pruned_schema: Dict[str, List[Dict]],
         schema_links: Dict,
-        strategy_value: str
+        strategy_value: str,
+        selected_examples: List[Dict] = None
     ) -> str:
         """
         Generate an alternative SQL using schema-first CoT at higher temperature.
-        Produces a structurally different candidate from the main NatSQL path.
-        Used by multi-candidate selection (Change A).
+        Uses a direct SQL generation path (no NatSQL) to diversify from the primary
+        NatSQL-based candidate. Examples are injected for few-shot grounding.
         """
         schema_str = ""
         for table_name, cols in sorted(pruned_schema.items()):
@@ -278,6 +279,23 @@ class ADAPTBaseline:
         if not fk_str:
             fk_str = "  (none)\n"
 
+        examples_str = ""
+        if selected_examples:
+            top_examples = sorted(
+                selected_examples,
+                key=lambda x: x.get('combined_score', x.get('similarity_score', 0)),
+                reverse=True
+            )[:3]
+            for ex in top_examples:
+                q = ex.get('question', '')
+                sql = ex.get('query', '')
+                if q and sql:
+                    examples_str += f"Q: {q}\nSQL: {sql}\n\n"
+
+        few_shot_section = ""
+        if examples_str:
+            few_shot_section = f"\nSimilar examples:\n{examples_str}"
+
         prompt = f"""Generate a SQLite query for the following question.
 
 Question: {question}
@@ -285,7 +303,7 @@ Question: {question}
 Schema:
 {schema_str}
 Foreign keys (use for JOINs):
-{fk_str}
+{fk_str}{few_shot_section}
 Approach:
 1. Identify the output columns and aggregation needed
 2. Identify the base table and any JOINs required
@@ -570,7 +588,8 @@ Output ONLY the SQL query (no explanation, no markdown):"""
                 question=natural_query,
                 pruned_schema=results['step1']['pruned_schema'],
                 schema_links=results['step1']['schema_links'],
-                strategy_value=strategy.value
+                strategy_value=strategy.value,
+                selected_examples=results['step4'].get('similar_examples', [])
             )
 
             if alt_sql:
@@ -580,9 +599,23 @@ Output ONLY the SQL query (no explanation, no markdown):"""
                 primary_rows = len(primary_exec.get('result_rows', [])) if primary_exec.get('success') else -1
                 alt_rows = len(alt_exec.get('result_rows', [])) if alt_exec.get('success') else -1
 
-                # Alternative wins only when primary returns nothing and alternative returns rows
+                primary_plaus = primary_exec.get('plausibility_check') or {}
+                alt_plaus = alt_exec.get('plausibility_check') or {}
+                primary_plausible = primary_plaus.get('plausible', True)
+                alt_plausible = alt_plaus.get('plausible', True)
+
+                # Alternative wins when primary returns nothing OR primary fails plausibility while alt passes
+                use_alt = False
+                reason = ""
                 if primary_rows == 0 and alt_rows > 0:
-                    print(f"   ✅ Alternative candidate selected ({alt_rows} rows vs 0 for primary)")
+                    use_alt = True
+                    reason = f"{alt_rows} rows vs 0 for primary"
+                elif not primary_plausible and alt_plausible and alt_rows > 0:
+                    use_alt = True
+                    reason = f"primary failed plausibility ({primary_plaus.get('issue', '?')}), alt passed"
+
+                if use_alt:
+                    print(f"   ✅ Alternative candidate selected ({reason})")
                     generated_sql = alt_sql
                 else:
                     print(f"   Primary candidate kept ({primary_rows} rows vs {alt_rows} for alternative)")
@@ -592,7 +625,7 @@ Output ONLY the SQL query (no explanation, no markdown):"""
                     'alt_sql': alt_sql,
                     'primary_rows': primary_rows,
                     'alt_rows': alt_rows,
-                    'winner': 'alt' if (primary_rows == 0 and alt_rows > 0) else 'primary'
+                    'winner': 'alt' if use_alt else 'primary'
                 }
             else:
                 print("   ⚠️  Alternative candidate generation skipped (empty output)")

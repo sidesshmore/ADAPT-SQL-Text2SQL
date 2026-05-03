@@ -860,10 +860,16 @@ Provide concise analysis:"""
             scored.sort(key=lambda x: x[0], reverse=True)
             top_cols = [col for _, col in scored[:self.max_cols_per_table]]
 
-            # Guarantee any explicitly linked column is present even if it didn't score high
+            # Guarantee explicitly linked, FK, and question-verbatim columns are never dropped
             top_names = {c['column_name'] for c in top_cols}
             for col in columns:
-                if col['column_name'] in explicitly_linked and col['column_name'] not in top_names:
+                name = col['column_name']
+                is_guaranteed = (
+                    name in explicitly_linked
+                    or (table, name) in fk_cols
+                    or bool(self._tokenize(name.lower()) & question_tokens)
+                )
+                if is_guaranteed and name not in top_names:
                     top_cols.append(col)
 
             filtered[table] = top_cols

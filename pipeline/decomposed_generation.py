@@ -466,14 +466,42 @@ Output ONLY the SQL query:"""
         prompt += "OUTER: [main selection]\n"
         prompt += "INNER: [subquery]\n"
         prompt += "PATTERN: [how they connect]\n\n"
-        
+
+        hint = self._detect_semantic_hints(question)
+        if hint:
+            prompt += f"Semantic hint: {hint}\n\n"
+
         prompt += "Generate the intermediate representation:\n"
-        
+
         return self._generate_with_llm(
-            prompt, 
+            prompt,
             f"You are an expert at composing nested SQL queries using the {pattern_key} pattern."
         )
-    
+
+    @staticmethod
+    def _detect_semantic_hints(question: str) -> str:
+        """Return a hint when the question has DISTINCT or set-op signals."""
+        q = ' ' + question.lower() + ' '
+        negation_phrases = [
+            ' not ', " n't ", ' never ', ' without ', ' except ', ' exclude',
+            ' neither ', ' nor ', ' but not ', ' other than ',
+        ]
+        distinct_phrases = [
+            ' distinct ', ' different ', ' unique ', ' how many types',
+            ' how many kinds', ' varieties of ',
+        ]
+        if any(p in q for p in negation_phrases):
+            return (
+                "The question implies exclusion/negation — consider EXCEPT, NOT IN, "
+                "or NOT EXISTS rather than a simple WHERE !=."
+            )
+        if any(p in q for p in distinct_phrases):
+            return (
+                "The question asks for distinct/unique values — remember to use SELECT DISTINCT "
+                "or COUNT(DISTINCT ...) where appropriate."
+            )
+        return ""
+
     # Also add method to validate nested structure:
 
     def _validate_nested_structure(

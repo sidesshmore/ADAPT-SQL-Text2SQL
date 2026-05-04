@@ -49,12 +49,31 @@ echo "[✓] Directories ready"
 if [ -f "$OLLAMA_INSTALL/bin/ollama" ]; then
     echo "[✓] Ollama already installed at $OLLAMA_INSTALL/bin/ollama"
 else
-    echo "[~] Downloading Ollama (no sudo, direct GitHub release)..."
-    mkdir -p "$OLLAMA_INSTALL"
-    curl -fsSL "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tgz" \
-        | tar -xz -C "$OLLAMA_INSTALL"
-    chmod +x "$OLLAMA_INSTALL/bin/ollama"
-    echo "[✓] Ollama installed at $OLLAMA_INSTALL/bin/ollama"
+    mkdir -p "$OLLAMA_INSTALL/bin"
+
+    # Try 1: copy from a known working install on the same cluster
+    KNOWN_INSTALL=""
+    for candidate in /scratch/smore123/ollama_install /scratch/snande1/ollama_install; do
+        if [ -f "$candidate/bin/ollama" ]; then
+            KNOWN_INSTALL="$candidate"
+            break
+        fi
+    done
+
+    if [ -n "$KNOWN_INSTALL" ]; then
+        echo "[~] Copying Ollama from existing install at $KNOWN_INSTALL..."
+        cp -r "$KNOWN_INSTALL/." "$OLLAMA_INSTALL/"
+        chmod +x "$OLLAMA_INSTALL/bin/ollama"
+        echo "[✓] Ollama copied from $KNOWN_INSTALL"
+
+    else
+        # Try 2: direct binary download from GitHub (no sudo, no tgz)
+        echo "[~] Downloading Ollama binary from GitHub releases..."
+        OLLAMA_BIN_URL="https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64"
+        curl -fSL -o "$OLLAMA_INSTALL/bin/ollama" "$OLLAMA_BIN_URL"
+        chmod +x "$OLLAMA_INSTALL/bin/ollama"
+        echo "[✓] Ollama binary downloaded"
+    fi
 fi
 
 # ── Start Ollama server ────────────────────────────────────────────────────────

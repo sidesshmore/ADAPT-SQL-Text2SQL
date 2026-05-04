@@ -62,11 +62,22 @@ else
 
     if [ -n "$KNOWN_INSTALL" ]; then
         echo "[~] Copying Ollama from existing install at $KNOWN_INSTALL..."
-        cp -r "$KNOWN_INSTALL/." "$OLLAMA_INSTALL/"
-        chmod +x "$OLLAMA_INSTALL/bin/ollama"
-        echo "[✓] Ollama copied from $KNOWN_INSTALL"
+        if cp -r "$KNOWN_INSTALL/." "$OLLAMA_INSTALL/" 2>/dev/null; then
+            chmod +x "$OLLAMA_INSTALL/bin/ollama"
+            echo "[✓] Ollama copied from $KNOWN_INSTALL"
+        else
+            echo "[!] Partial copy (permission denied on some files) — trying binary-only copy..."
+            if cp "$KNOWN_INSTALL/bin/ollama" "$OLLAMA_INSTALL/bin/ollama" 2>/dev/null; then
+                chmod +x "$OLLAMA_INSTALL/bin/ollama"
+                echo "[✓] Ollama binary copied from $KNOWN_INSTALL"
+            else
+                echo "[!] Binary copy also failed — falling through to download"
+                KNOWN_INSTALL=""
+            fi
+        fi
+    fi
 
-    else
+    if [ -z "$KNOWN_INSTALL" ] || [ ! -f "$OLLAMA_INSTALL/bin/ollama" ]; then
         # Try 2: download via multiple URL candidates (no sudo, no tgz)
         DOWNLOADED=false
         OLLAMA_URLS=(

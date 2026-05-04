@@ -71,8 +71,13 @@ else
         DOWNLOADED=false
         OLLAMA_URLS=(
             "https://ollama.com/download/ollama-linux-amd64"
-            "https://github.com/ollama/ollama/releases/download/v0.3.14/ollama-linux-amd64"
-            "https://github.com/ollama/ollama/releases/download/v0.2.8/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.22.0/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.20.0/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.15.0/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.10.0/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.6.0/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.4.0/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.3.6/ollama-linux-amd64"
         )
         for url in "${OLLAMA_URLS[@]}"; do
             echo "[~] Trying: $url"

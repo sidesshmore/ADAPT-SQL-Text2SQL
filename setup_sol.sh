@@ -49,9 +49,12 @@ echo "[✓] Directories ready"
 if [ -f "$OLLAMA_INSTALL/bin/ollama" ]; then
     echo "[✓] Ollama already installed at $OLLAMA_INSTALL/bin/ollama"
 else
-    echo "[~] Installing Ollama (custom path — includes CUDA libs)..."
-    curl -fsSL https://ollama.com/install.sh | OLLAMA_INSTALL_DIR="$OLLAMA_INSTALL" sh
-    echo "[✓] Ollama installed"
+    echo "[~] Downloading Ollama (no sudo, direct GitHub release)..."
+    mkdir -p "$OLLAMA_INSTALL"
+    curl -fsSL "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tgz" \
+        | tar -xz -C "$OLLAMA_INSTALL"
+    chmod +x "$OLLAMA_INSTALL/bin/ollama"
+    echo "[✓] Ollama installed at $OLLAMA_INSTALL/bin/ollama"
 fi
 
 # ── Start Ollama server ────────────────────────────────────────────────────────

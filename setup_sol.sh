@@ -67,12 +67,32 @@ else
         echo "[✓] Ollama copied from $KNOWN_INSTALL"
 
     else
-        # Try 2: direct binary download from GitHub (no sudo, no tgz)
-        echo "[~] Downloading Ollama binary from GitHub releases..."
-        OLLAMA_BIN_URL="https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64"
-        curl -fSL -o "$OLLAMA_INSTALL/bin/ollama" "$OLLAMA_BIN_URL"
-        chmod +x "$OLLAMA_INSTALL/bin/ollama"
-        echo "[✓] Ollama binary downloaded"
+        # Try 2: download via multiple URL candidates (no sudo, no tgz)
+        DOWNLOADED=false
+        OLLAMA_URLS=(
+            "https://ollama.com/download/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.3.14/ollama-linux-amd64"
+            "https://github.com/ollama/ollama/releases/download/v0.2.8/ollama-linux-amd64"
+        )
+        for url in "${OLLAMA_URLS[@]}"; do
+            echo "[~] Trying: $url"
+            if curl -fSL --max-time 120 -o "$OLLAMA_INSTALL/bin/ollama" "$url" 2>/dev/null; then
+                chmod +x "$OLLAMA_INSTALL/bin/ollama"
+                echo "[✓] Ollama downloaded from $url"
+                DOWNLOADED=true
+                break
+            else
+                echo "[!] Failed: $url"
+            fi
+        done
+
+        if [ "$DOWNLOADED" = false ]; then
+            echo "[✗] All download attempts failed."
+            echo "    Manual fix: ask smore123 to run:"
+            echo "      chmod o+rx /scratch/smore123 /scratch/smore123/ollama_install /scratch/smore123/ollama_install/bin /scratch/smore123/ollama_install/bin/ollama"
+            echo "    Then re-run this script."
+            exit 1
+        fi
     fi
 fi
 

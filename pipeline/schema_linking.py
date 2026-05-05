@@ -218,16 +218,21 @@ class EnhancedSchemaLinker:
         }
         
         # Match tables
+        norm_question_tokens = {self._normalize_name(t) for t in question_tokens}
         for table_name in schema_dict.keys():
             table_tokens = self._tokenize(table_name.lower())
-            
+
             # Check for exact token matches
             exact_match = any(token in question_tokens for token in table_tokens)
-            
+
+            # Phase D: normalized match
+            norm_table = self._normalize_name(table_name)
+            norm_match = norm_table in norm_question_tokens
+
             # Check for fuzzy matches
             fuzzy_score = self._fuzzy_match_score(table_name.lower(), question_lower)
-            
-            if exact_match or fuzzy_score >= self.table_match_threshold:
+
+            if exact_match or norm_match or fuzzy_score >= self.table_match_threshold:
                 candidate_tables.add(table_name)
                 match_details['table_matches'].append({
                     'table': table_name,
@@ -236,22 +241,29 @@ class EnhancedSchemaLinker:
                     'reason': 'exact' if exact_match else 'fuzzy'
                 })
         
+        # Pre-build normalized question word set for Phase D name normalization
+        norm_question_words = {self._normalize_name(t) for t in question_tokens}
+
         # Match columns
         for table_name, columns in schema_dict.items():
             for col in columns:
                 col_name = col['column_name']
                 col_tokens = self._tokenize(col_name.lower())
-                
+
                 # Check for exact token matches
                 exact_match = any(token in question_tokens for token in col_tokens)
-                
+
+                # Phase D: normalized match (pettype ↔ pet_type ↔ PetType)
+                norm_col = self._normalize_name(col_name)
+                norm_match = norm_col in norm_question_words
+
                 # Check for fuzzy matches
                 fuzzy_score = self._fuzzy_match_score(col_name.lower(), question_lower)
-                
+
                 # Check for semantic indicators (e.g., "name" for person_name)
                 semantic_match = self._check_semantic_match(col_name.lower(), question_tokens)
-                
-                if exact_match or fuzzy_score >= self.column_match_threshold or semantic_match:
+
+                if exact_match or norm_match or fuzzy_score >= self.column_match_threshold or semantic_match:
                     # Add the table containing this column
                     candidate_tables.add(table_name)
                     candidate_columns[table_name].add(col_name)
@@ -289,11 +301,22 @@ class EnhancedSchemaLinker:
             'method': 'string_matching'
         }
     
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """
+        Normalize a schema identifier or question token to a canonical form
+        for comparison: lowercase, remove underscores, collapse runs.
+        pet_type → pettype, PetType → pettype, petType → pettype
+        """
+        # camelCase → snake_case first
+        s = re.sub(r'([a-z])([A-Z])', r'\1_\2', name)
+        return re.sub(r'[_\s]+', '', s).lower()
+
     def _tokenize(self, text: str) -> Set[str]:
         """Tokenize text into words, handling common separators"""
         # Split on non-alphanumeric characters
         tokens = re.findall(r'\b[a-z0-9]+\b', text.lower())
-        
+
         # Also split camelCase and snake_case
         expanded_tokens = []
         for token in tokens:
@@ -302,7 +325,7 @@ class EnhancedSchemaLinker:
             # Split snake_case and numbers
             for part in split_camel:
                 expanded_tokens.extend(part.split('_'))
-        
+
         return set(expanded_tokens)
     
     def _fuzzy_match_score(self, text1: str, text2: str) -> float:

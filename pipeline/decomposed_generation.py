@@ -633,7 +633,178 @@ Output ONLY the SQL query:"""
         
         return schema_str
     
-    def _generate_with_llm(self, prompt: str, system_msg: str) -> str:
+    def generate_candidates(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        sub_questions: List[str],
+        selected_examples: List[Dict],
+        few_shot_generator=None,
+        intermediate_generator=None,
+        python_hint: str = '',
+        set_op_hint: str = '',
+        n: int = 2
+    ) -> List[str]:
+        """Generate n additional SQL candidates using skeleton-first and higher temp approaches."""
+        candidates = []
+        # Candidate 1: skeleton-first approach (Phase E)
+        try:
+            skel_sql = self._generate_skeleton_first(
+                question, pruned_schema, schema_links, selected_examples
+            )
+            if skel_sql:
+                candidates.append(skel_sql)
+        except Exception:
+            pass
+        # Candidate 2: GoT at higher temperature — reuse existing decomposed at temp 0.5
+        if len(candidates) < n:
+            try:
+                alt = self._generate_decomposed_at_temp(
+                    question, pruned_schema, schema_links, sub_questions,
+                    selected_examples, few_shot_generator, intermediate_generator,
+                    python_hint=python_hint, temperature=0.5
+                )
+                if alt:
+                    candidates.append(alt)
+            except Exception:
+                pass
+        return candidates[:n]
+
+    def _generate_decomposed_at_temp(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        sub_questions: List[str],
+        selected_examples: List[Dict],
+        few_shot_generator=None,
+        intermediate_generator=None,
+        python_hint: str = '',
+        temperature: float = 0.5
+    ) -> str:
+        """Run a condensed single-shot decomposed generation at a given temperature."""
+        schema_str = '\n'.join(
+            f"  {t}: {', '.join(c['column_name'] for c in cols)}"
+            for t, cols in sorted(pruned_schema.items())
+        )
+        fk_str = '\n'.join(
+            f"  {fk.get('from_table','')}.{fk.get('from_column','')} → "
+            f"{fk.get('to_table','')}.{fk.get('to_column','')}"
+            for fk in schema_links.get('foreign_keys', [])
+        ) or '  (none)'
+        sub_q_text = '\n'.join(f"  {i+1}. {q}" for i, q in enumerate(sub_questions))
+
+        prompt = f"""Generate a SQLite query for this nested question.
+
+Question: {question}
+Sub-questions to address:
+{sub_q_text}
+
+Schema:
+{schema_str}
+
+Foreign keys:
+{fk_str}
+"""
+        if python_hint:
+            prompt += f"\nOracle hint: {python_hint}\n"
+        prompt += "\nOutput ONLY the SQL query:\n"
+
+        try:
+            response = ollama.chat(
+                model=self.model,
+                messages=[
+                    {'role': 'system', 'content': 'You are an expert SQLite query writer.'},
+                    {'role': 'user', 'content': prompt}
+                ],
+                options={'temperature': temperature}
+            )
+            raw = response['message']['content'].strip()
+            return self._clean_sql(raw)
+        except Exception:
+            return ''
+
+    def _generate_skeleton_first(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        selected_examples: List[Dict]
+    ) -> str:
+        """Phase E: Generate skeleton, then fill it in — RESDSQL-inspired."""
+        schema_str = '\n'.join(
+            f"  {t}: {', '.join(c['column_name'] for c in cols)}"
+            for t, cols in sorted(pruned_schema.items())
+        )
+        fk_str = '\n'.join(
+            f"  {fk.get('from_table','')}.{fk.get('from_column','')} → "
+            f"{fk.get('to_table','')}.{fk.get('to_column','')}"
+            for fk in schema_links.get('foreign_keys', [])
+        ) or '  (none)'
+
+        # Step 1: skeleton generation
+        skel_prompt = f"""Generate the SQL SKELETON for this question. Use ___ as placeholders for:
+- All column names and table names
+- All literal values and conditions
+- Show the structural pattern only (SELECT, FROM, JOIN, WHERE, EXISTS, IN, EXCEPT, etc.)
+
+Question: {question}
+
+Schema:
+{schema_str}
+
+Foreign keys:
+{fk_str}
+
+Output ONLY the skeleton (e.g.: SELECT ___ FROM ___ WHERE ___ IN (SELECT ___ FROM ___ WHERE ___)):"""
+
+        try:
+            skel_resp = ollama.chat(
+                model=self.model,
+                messages=[
+                    {'role': 'system', 'content': 'You are a SQL structure expert. Output only the SQL skeleton.'},
+                    {'role': 'user', 'content': skel_prompt}
+                ],
+                options={'temperature': 0.1}
+            )
+            skeleton = skel_resp['message']['content'].strip()
+        except Exception:
+            return ''
+
+        if not skeleton:
+            return ''
+
+        # Step 2: fill in skeleton
+        fill_prompt = f"""Fill in the SQL skeleton with real table names, column names, and values.
+
+Question: {question}
+
+Schema:
+{schema_str}
+
+Foreign keys:
+{fk_str}
+
+SQL Skeleton to fill:
+{skeleton}
+
+Output ONLY the complete SQL query:"""
+
+        try:
+            fill_resp = ollama.chat(
+                model=self.model,
+                messages=[
+                    {'role': 'system', 'content': 'You are a SQL expert. Fill in the skeleton with actual schema names.'},
+                    {'role': 'user', 'content': fill_prompt}
+                ],
+                options={'temperature': 0.1}
+            )
+            return self._clean_sql(fill_resp['message']['content'].strip())
+        except Exception:
+            return ''
+
+    def _generate_with_llm(self, prompt: str, system_msg: str, temperature: float = 0.2) -> str:
         """Generate using LLM"""
         try:
             response = ollama.chat(
@@ -642,11 +813,11 @@ Output ONLY the SQL query:"""
                     {'role': 'system', 'content': system_msg},
                     {'role': 'user', 'content': prompt}
                 ],
-                options={'temperature': 0.2}
+                options={'temperature': temperature}
             )
-            
+
             return response['message']['content'].strip()
-            
+
         except Exception as e:
             return f"-- Error: {str(e)}"
     

@@ -17,7 +17,8 @@ class FewShotGenerator:
         question: str,
         pruned_schema: Dict[str, List[Dict]],
         schema_links: Dict,
-        selected_examples: List[Dict]
+        selected_examples: List[Dict],
+        set_op_hint: str = ''
     ) -> Dict:
         """
         MODIFIED: Generate SQL via NatSQL intermediate (even for EASY queries)
@@ -57,7 +58,8 @@ class FewShotGenerator:
         # NEW: Generate NatSQL intermediate first
         print("6a.2: Generating NatSQL intermediate...")
         natsql_intermediate = self._generate_natsql_intermediate(
-            question, pruned_schema, schema_links, best_examples
+            question, pruned_schema, schema_links, best_examples,
+            set_op_hint=set_op_hint
         )
         print(f"   NatSQL: {natsql_intermediate[:80]}...")
         
@@ -94,12 +96,39 @@ class FewShotGenerator:
             'examples_used': len(best_examples)
         }
     
+    def generate_candidates(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        selected_examples: List[Dict],
+        n: int = 2,
+        set_op_hint: str = ''
+    ) -> List[str]:
+        """Generate n additional SQL candidates at higher temperatures for diversity."""
+        temps = [0.4, 0.7][:n]
+        candidates = []
+        for temp in temps:
+            try:
+                best_examples = self._select_best_examples(selected_examples, n=5)
+                natsql = self._generate_natsql_intermediate(
+                    question, pruned_schema, schema_links, best_examples,
+                    set_op_hint=set_op_hint, temperature=temp
+                )
+                sql = self._natsql_to_sql(natsql, pruned_schema, schema_links, best_examples)
+                candidates.append(self._clean_sql(sql))
+            except Exception:
+                pass
+        return candidates
+
     def _generate_natsql_intermediate(
         self,
         question: str,
         pruned_schema: Dict[str, List[Dict]],
         schema_links: Dict,
-        examples: List[Dict]
+        examples: List[Dict],
+        set_op_hint: str = '',
+        temperature: float = 0.2
     ) -> str:
         """
         NEW: Generate NatSQL intermediate representation
@@ -134,6 +163,8 @@ class FewShotGenerator:
         
         # Add task
         prompt += "## Your Task\n\n"
+        if set_op_hint:
+            prompt += set_op_hint + "\n"
         prompt += f"Question: {question}\n\n"
         prompt += "Before generating NatSQL, reason through:\n"
         prompt += "1. Which tables contain the needed data?\n"
@@ -147,7 +178,8 @@ class FewShotGenerator:
 
         natsql = self._generate_with_llm(
             prompt,
-            "You are an expert at generating NatSQL intermediate representations."
+            "You are an expert at generating NatSQL intermediate representations.",
+            temperature=temperature
         )
 
         return natsql.strip()
@@ -308,11 +340,11 @@ class FewShotGenerator:
         
         return schema_str
     
-    def _generate_with_llm(self, prompt: str, system_msg: str = None) -> str:
+    def _generate_with_llm(self, prompt: str, system_msg: str = None, temperature: float = 0.2) -> str:
         """Generate using LLM"""
         if system_msg is None:
             system_msg = 'You are an expert SQL query generator.'
-        
+
         try:
             response = ollama.chat(
                 model=self.model,
@@ -320,11 +352,11 @@ class FewShotGenerator:
                     {'role': 'system', 'content': system_msg},
                     {'role': 'user', 'content': prompt}
                 ],
-                options={'temperature': 0.2}
+                options={'temperature': temperature}
             )
-            
+
             return response['message']['content'].strip()
-            
+
         except Exception as e:
             return f"-- Error: {str(e)}"
     

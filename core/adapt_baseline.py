@@ -47,12 +47,14 @@ from pipeline.sql_normalizer import normalize_sql_post_generation
 from utils.structural_similarity import enhance_example_selection
 from pipeline.checker_chain import CheckerChain
 from pipeline.python_pivot import PythonPivot
+from pipeline.set_op_detector import SetOpDetector
+from pipeline.candidate_selector import CandidateSelector
 
 
 class ADAPTBaseline:
     def __init__(
         self,
-        model: str = "qwen3-coder",
+        model: str = "qwen2.5-coder:32b",
         vector_store_path: str = None,
         max_retries: int = 2,
         execution_timeout: int = 30,
@@ -94,6 +96,8 @@ class ADAPTBaseline:
         self.intermediate_generator = IntermediateRepresentationGenerator(model=model)
         self.decomposed_generator = DecomposedGenerator(model=model)
         self.python_pivot = PythonPivot(model=model)
+        self.set_op_detector = SetOpDetector()
+        self.candidate_selector = CandidateSelector(db_manager=self.db_manager)
         
         # Load vector store if path provided
         self.vector_store = None
@@ -207,28 +211,32 @@ class ADAPTBaseline:
         self,
         natural_query: str,
         step1_result: Dict,
-        step4_result: Dict
+        step4_result: Dict,
+        set_op_hint: str = ''
     ) -> Dict:
         """STEP 6a: Simple Few-Shot Generation (for EASY queries)"""
         return self.few_shot_generator.generate_sql_easy(
             natural_query,
             step1_result['pruned_schema'],
             step1_result['schema_links'],
-            step4_result['similar_examples']
+            step4_result['similar_examples'],
+            set_op_hint=set_op_hint
         )
-    
+
     def run_step6b_intermediate_generation(
         self,
         natural_query: str,
         step1_result: Dict,
-        step4_result: Dict
+        step4_result: Dict,
+        set_op_hint: str = ''
     ) -> Dict:
         """STEP 6b: Intermediate Representation Generation (for NON_NESTED_COMPLEX)"""
         return self.intermediate_generator.generate_sql_with_intermediate(
             natural_query,
             step1_result['pruned_schema'],
             step1_result['schema_links'],
-            step4_result['similar_examples']
+            step4_result['similar_examples'],
+            set_op_hint=set_op_hint
         )
     
     def run_step6c_decomposed_generation(
@@ -545,27 +553,35 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
         results['step6b'] = None
         results['step6c'] = None
         generated_sql = None
-        
+
+        # B: Set operation detection — inject hint into generation prompt
+        set_op_hint = self.set_op_detector.make_hint(natural_query)
+        if set_op_hint:
+            print(f"\n   [B] Set-op detected — injecting hint into generation prompt")
+        results['set_op_detected'] = bool(set_op_hint)
+
         strategy = step5_result['strategy']
-        
+
         if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
             step6a_result = self.run_step6a_few_shot_generation(
                 natural_query,
                 results['step1'],
-                results['step4']
+                results['step4'],
+                set_op_hint=set_op_hint
             )
             results['step6a'] = step6a_result
             generated_sql = step6a_result['generated_sql']
-            
+
         elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
             step6b_result = self.run_step6b_intermediate_generation(
                 natural_query,
                 results['step1'],
-                results['step4']
+                results['step4'],
+                set_op_hint=set_op_hint
             )
             results['step6b'] = step6b_result
             generated_sql = step6b_result['generated_sql']
-            
+
         elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
             # G': Python pivot — get oracle result shape hint before generation
             python_hint = ''
@@ -599,11 +615,11 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
         if generated_sql and self._is_sql_truncated(generated_sql):
             print("   ⚠️  Generated SQL appears truncated — retrying generation once")
             if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
-                r6 = self.run_step6a_few_shot_generation(natural_query, results['step1'], results['step4'])
+                r6 = self.run_step6a_few_shot_generation(natural_query, results['step1'], results['step4'], set_op_hint=set_op_hint)
                 generated_sql = r6['generated_sql']
                 results['step6a'] = r6
             elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
-                r6 = self.run_step6b_intermediate_generation(natural_query, results['step1'], results['step4'])
+                r6 = self.run_step6b_intermediate_generation(natural_query, results['step1'], results['step4'], set_op_hint=set_op_hint)
                 generated_sql = r6['generated_sql']
                 results['step6b'] = r6
             elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
@@ -611,59 +627,66 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                 generated_sql = r6['generated_sql']
                 results['step6c'] = r6
 
-        # Multi-candidate selection: generate a 2nd SQL and pick by execution outcome
-        # Only runs when db_path is available (needed to execute candidates for comparison)
+        # Multi-candidate selection (Phase C): generate N additional candidates and pick by majority vote
+        # Replaces the old GoT alt-candidate with a proper execution-based majority selector
         results['multi_candidate'] = None
         if enable_multi_candidate and generated_sql and db_path:
             print("\n" + "="*70)
-            print("STEP 6 (ALT): MULTI-CANDIDATE GENERATION")
+            print("STEP 6 (ALT): MULTI-CANDIDATE GENERATION + EXECUTION SELECTION")
             print("="*70 + "\n")
 
-            alt_sql = self._generate_alternative_candidate(
-                question=natural_query,
-                pruned_schema=results['step1']['pruned_schema'],
-                schema_links=results['step1']['schema_links'],
-                strategy_value=strategy.value,
-                selected_examples=results['step4'].get('similar_examples', [])
-            )
+            extra_candidates: List[str] = []
+            if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
+                extra_candidates = self.few_shot_generator.generate_candidates(
+                    natural_query, results['step1']['pruned_schema'],
+                    results['step1']['schema_links'], results['step4'].get('similar_examples', []),
+                    n=2, set_op_hint=set_op_hint
+                )
+            elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
+                extra_candidates = self.intermediate_generator.generate_candidates(
+                    natural_query, results['step1']['pruned_schema'],
+                    results['step1']['schema_links'], results['step4'].get('similar_examples', []),
+                    n=2, set_op_hint=set_op_hint
+                )
+            elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
+                extra_candidates = self.decomposed_generator.generate_candidates(
+                    natural_query, results['step1']['pruned_schema'],
+                    results['step1']['schema_links'],
+                    results['step2']['sub_questions'],
+                    results['step4'].get('similar_examples', []),
+                    few_shot_generator=self.few_shot_generator,
+                    intermediate_generator=self.intermediate_generator,
+                    python_hint=python_hint,
+                    set_op_hint=set_op_hint,
+                    n=2
+                )
 
-            if alt_sql:
-                primary_exec = self.db_manager.execute_query(generated_sql, db_path)
-                alt_exec = self.db_manager.execute_query(alt_sql, db_path)
+            all_candidates = [generated_sql] + [c for c in extra_candidates if c]
+            print(f"   Selecting from {len(all_candidates)} candidate(s)")
 
-                primary_rows = len(primary_exec.get('result_rows', [])) if primary_exec.get('success') else -1
-                alt_rows = len(alt_exec.get('result_rows', [])) if alt_exec.get('success') else -1
+            sel = self.candidate_selector.select(all_candidates, db_path)
+            winner_sql = sel['winner_sql']
+            winner_idx = sel['winner_index']
+            winner_reason = sel['winner_reason']
 
-                primary_plaus = primary_exec.get('plausibility_check') or {}
-                alt_plaus = alt_exec.get('plausibility_check') or {}
-                primary_plausible = primary_plaus.get('plausible', True)
-                alt_plausible = alt_plaus.get('plausible', True)
-
-                # Alternative wins when primary returns nothing OR primary fails plausibility while alt passes
-                use_alt = False
-                reason = ""
-                if primary_rows == 0 and alt_rows > 0:
-                    use_alt = True
-                    reason = f"{alt_rows} rows vs 0 for primary"
-                elif not primary_plausible and alt_plausible and alt_rows > 0:
-                    use_alt = True
-                    reason = f"primary failed plausibility ({primary_plaus.get('issue', '?')}), alt passed"
-
-                if use_alt:
-                    print(f"   ✅ Alternative candidate selected ({reason})")
-                    generated_sql = alt_sql
-                else:
-                    print(f"   Primary candidate kept ({primary_rows} rows vs {alt_rows} for alternative)")
-
-                results['multi_candidate'] = {
-                    'primary_sql': results.get('final_sql', generated_sql),
-                    'alt_sql': alt_sql,
-                    'primary_rows': primary_rows,
-                    'alt_rows': alt_rows,
-                    'winner': 'alt' if use_alt else 'primary'
-                }
+            if winner_idx != 0:
+                print(f"   ✅ Candidate [{winner_idx}] selected ({winner_reason})")
+                generated_sql = winner_sql
             else:
-                print("   ⚠️  Alternative candidate generation skipped (empty output)")
+                print(f"   Primary candidate kept ({winner_reason})")
+
+            # Log GoT-compatible multi_candidate dict for batch_utils.py
+            primary_exec = sel['exec_results'][0] if sel['exec_results'] else {}
+            results['multi_candidate'] = {
+                'primary_sql': all_candidates[0],
+                'alt_sql': winner_sql if winner_idx != 0 else (all_candidates[1] if len(all_candidates) > 1 else ''),
+                'primary_rows': primary_exec.get('row_count', -1),
+                'alt_rows': sel['exec_results'][winner_idx].get('row_count', -1) if winner_idx < len(sel['exec_results']) else -1,
+                'winner': 'alt' if winner_idx != 0 else 'primary',
+                'winner_index': winner_idx,
+                'winner_reason': winner_reason,
+                'n_candidates': len(all_candidates),
+            }
 
         # Step 6.5: SQL Normalization (if enabled)
         if self.enable_sql_normalization and generated_sql:

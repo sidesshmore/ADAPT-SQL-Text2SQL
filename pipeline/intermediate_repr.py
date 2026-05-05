@@ -36,7 +36,8 @@ class IntermediateRepresentationGenerator:
         question: str,
         pruned_schema: Dict[str, List[Dict]],
         schema_links: Dict,
-        selected_examples: List[Dict]
+        selected_examples: List[Dict],
+        set_op_hint: str = ''
     ) -> Dict:
         """
         ENHANCED: Generate SQL via NatSQL intermediate for ALL query types
@@ -81,7 +82,8 @@ class IntermediateRepresentationGenerator:
             pruned_schema,
             schema_links,
             best_examples,
-            gt_patterns
+            gt_patterns,
+            set_op_hint=set_op_hint
         )
         print(f"   NatSQL generated: {len(natsql_result['natsql'])} characters")
         
@@ -272,13 +274,45 @@ class IntermediateRepresentationGenerator:
         counter = Counter(items)
         return counter.most_common(1)[0][0] if counter else 'NONE'
     
+    def generate_candidates(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        selected_examples: List[Dict],
+        n: int = 2,
+        set_op_hint: str = ''
+    ) -> List[str]:
+        """Generate n additional SQL candidates at higher temperatures for diversity."""
+        temps = [0.4, 0.7][:n]
+        candidates = []
+        for temp in temps:
+            try:
+                best_examples = self._select_best_examples(selected_examples, n=5)
+                gt_patterns = self._analyze_ground_truth_patterns(best_examples)
+                natsql_result = self._generate_natsql_universal(
+                    question, pruned_schema, schema_links, best_examples, gt_patterns,
+                    set_op_hint=set_op_hint, temperature=temp
+                )
+                sql = self._natsql_to_normalized_sql(
+                    natsql_result['natsql'], natsql_result['structure'],
+                    pruned_schema, schema_links, best_examples, gt_patterns,
+                    original_question=question
+                )
+                candidates.append(sql)
+            except Exception:
+                pass
+        return candidates
+
     def _generate_natsql_universal(
         self,
         question: str,
         pruned_schema: Dict[str, List[Dict]],
         schema_links: Dict,
         examples: List[Dict],
-        gt_patterns: Dict
+        gt_patterns: Dict,
+        set_op_hint: str = '',
+        temperature: float = 0.1
     ) -> Dict:
         """
         NEW: Generate NatSQL for ANY query type (EASY, NON_NESTED, NESTED)
@@ -332,6 +366,8 @@ Examples:
         
         # Add task
         prompt += "## Your Task\n\n"
+        if set_op_hint:
+            prompt += set_op_hint + "\n"
         prompt += f"Question: {question}\n\n"
         prompt += "Before generating NatSQL, reason through:\n"
         prompt += "1. Which tables contain the needed data?\n"
@@ -348,10 +384,11 @@ Examples:
         prompt += "- Use standard aggregations: count(), avg(), etc.\n"
         prompt += "- Follow the ground truth patterns above\n\n"
         prompt += "Generate NatSQL:\n"
-        
+
         natsql = self._generate_with_llm(
             prompt,
-            "You are an expert at generating NatSQL intermediate representations following DIN-SQL format."
+            "You are an expert at generating NatSQL intermediate representations following DIN-SQL format.",
+            temperature=temperature
         )
         
         # Parse structure
@@ -605,7 +642,7 @@ Examples:
         
         return schema_str
     
-    def _generate_with_llm(self, prompt: str, system_msg: str) -> str:
+    def _generate_with_llm(self, prompt: str, system_msg: str, temperature: float = 0.1) -> str:
         """Generate using LLM"""
         try:
             response = ollama.chat(
@@ -614,11 +651,11 @@ Examples:
                     {'role': 'system', 'content': system_msg},
                     {'role': 'user', 'content': prompt}
                 ],
-                options={'temperature': 0.2}
+                options={'temperature': temperature}
             )
-            
+
             return response['message']['content'].strip()
-            
+
         except Exception as e:
             return f"-- Error: {str(e)}"
     

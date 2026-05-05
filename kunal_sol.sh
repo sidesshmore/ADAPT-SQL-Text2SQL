@@ -1,8 +1,8 @@
 #!/bin/bash
-# run_sol.sh — One-command startup for ADAPT-SQL on ASU SOL
-# Usage: bash run_sol.sh
+# kunal_sol.sh — One-command startup for ADAPT-SQL on ASU SOL
+# Usage: bash kunal_sol.sh
 
-SCRATCH=/scratch/smore123
+SCRATCH=/scratch/kjadha12
 PROJECT=$SCRATCH/ADAPT-SQL-Text2SQL
 OLLAMA_BIN=$SCRATCH/ollama_install/bin/ollama
 OLLAMA_MODELS=$SCRATCH/ollama_models
@@ -10,7 +10,7 @@ OLLAMA_PORT=11437
 STREAMLIT_PORT=8501
 
 # ── Environment ────────────────────────────────────────────────────────────
-export HOME=/home/smore123
+export HOME=/home/kjadha12
 export PATH="$SCRATCH/ollama_install/bin:$PATH"
 export OLLAMA_HOST=http://127.0.0.1:$OLLAMA_PORT
 export OLLAMA_MODELS=$OLLAMA_MODELS
@@ -51,17 +51,28 @@ else
     echo "[✓] $MODEL downloaded"
 fi
 
+# ── Streamlit config (fixes OOD WebSocket origin rejection) ───────────────
+mkdir -p $PROJECT/.streamlit
+cat > $PROJECT/.streamlit/config.toml << 'EOF'
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+serverAddress = "0.0.0.0"
+EOF
+echo "[✓] Streamlit config written"
+
 # ── Streamlit ─────────────────────────────────────────────────────────────
 echo ""
 echo "[✓] Starting Streamlit on port $STREAMLIT_PORT..."
 echo "    Access via OOD browser, or SSH tunnel from your Mac:"
-echo "    ssh -L $STREAMLIT_PORT:localhost:$STREAMLIT_PORT smore123@sol.rc.asu.edu"
+echo "    ssh -L $STREAMLIT_PORT:localhost:$STREAMLIT_PORT kjadha12@sol.rc.asu.edu"
 echo "    Then open http://localhost:$STREAMLIT_PORT"
 echo ""
 echo "    In the sidebar: set Ollama Host = http://127.0.0.1:$OLLAMA_PORT"
 echo ""
 
-streamlit run $PROJECT/ui/app.py \
-    --server.port $STREAMLIT_PORT \
-    --server.enableCORS=false \
-    --server.enableXsrfProtection=false
+streamlit run $PROJECT/ui/pages/batch_processing.py \
+    --server.port $STREAMLIT_PORT

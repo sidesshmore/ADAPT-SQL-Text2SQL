@@ -46,6 +46,7 @@ from pipeline.evaluation import Text2SQLEvaluator
 from pipeline.sql_normalizer import normalize_sql_post_generation
 from utils.structural_similarity import enhance_example_selection
 from pipeline.checker_chain import CheckerChain
+from pipeline.python_pivot import PythonPivot
 
 
 class ADAPTBaseline:
@@ -92,6 +93,7 @@ class ADAPTBaseline:
         self.few_shot_generator = FewShotGenerator(model=model)
         self.intermediate_generator = IntermediateRepresentationGenerator(model=model)
         self.decomposed_generator = DecomposedGenerator(model=model)
+        self.python_pivot = PythonPivot(model=model)
         
         # Load vector store if path provided
         self.vector_store = None
@@ -234,7 +236,8 @@ class ADAPTBaseline:
         natural_query: str,
         step1_result: Dict,
         step2_result: Dict,
-        step4_result: Dict
+        step4_result: Dict,
+        python_hint: str = ''
     ) -> Dict:
         """STEP 6c: Decomposed Generation with Subquery Handling (for NESTED_COMPLEX)"""
         return self.decomposed_generator.generate_sql_decomposed(
@@ -244,7 +247,8 @@ class ADAPTBaseline:
             step2_result['sub_questions'],
             step4_result['similar_examples'],
             few_shot_generator=self.few_shot_generator,
-            intermediate_generator=self.intermediate_generator
+            intermediate_generator=self.intermediate_generator,
+            python_hint=python_hint
         )
     
     @staticmethod
@@ -563,11 +567,27 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             generated_sql = step6b_result['generated_sql']
             
         elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
+            # G': Python pivot — get oracle result shape hint before generation
+            python_hint = ''
+            if db_path and enable_execution:
+                print("\n   [G'] Python pivot: generating oracle hint...")
+                python_hint = self.python_pivot.get_hint(
+                    question=natural_query,
+                    pruned_schema=results['step1']['pruned_schema'],
+                    foreign_keys=results['step1']['schema_links'].get('foreign_keys', []),
+                    db_path=db_path,
+                    db_manager=self.db_manager
+                )
+                if python_hint:
+                    print(f"   [G'] Oracle hint: {python_hint}")
+                else:
+                    print("   [G'] Oracle hint unavailable — continuing without hint")
             step6c_result = self.run_step6c_decomposed_generation(
                 natural_query,
                 results['step1'],
                 results['step2'],
-                results['step4']
+                results['step4'],
+                python_hint=python_hint
             )
             results['step6c'] = step6c_result
             generated_sql = step6c_result['generated_sql']
@@ -587,7 +607,7 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                 generated_sql = r6['generated_sql']
                 results['step6b'] = r6
             elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
-                r6 = self.run_step6c_decomposed_generation(natural_query, results['step1'], results['step2'], results['step4'])
+                r6 = self.run_step6c_decomposed_generation(natural_query, results['step1'], results['step2'], results['step4'], python_hint=python_hint)
                 generated_sql = r6['generated_sql']
                 results['step6c'] = r6
 
@@ -696,7 +716,8 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             check_result = checker.run(
                 generated_sql,
                 db_path=db_path if enable_execution else None,
-                db_manager=self.db_manager if enable_execution else None
+                db_manager=self.db_manager if enable_execution else None,
+                question=natural_query
             )
             results['checker_chain'] = check_result
             if not check_result['passed']:

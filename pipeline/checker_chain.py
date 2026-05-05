@@ -25,19 +25,28 @@ class CheckerChain:
     # Public entry point
     # ------------------------------------------------------------------
 
+    # DISTINCT signals: question likely needs DISTINCT or COUNT(DISTINCT ...)
+    _DISTINCT_SIGNALS = [
+        'different', 'unique', 'distinct', 'how many types', 'how many kinds',
+        'how many different', 'varieties of', 'kind of', 'type of',
+        'each unique', 'list all different', 'list the different',
+    ]
+
     def run(
         self,
         sql: str,
         db_path: Optional[str] = None,
-        db_manager=None
+        db_manager=None,
+        question: str = ''
     ) -> Dict:
-        """Run all 6 checkers in order. Return on first failure."""
+        """Run all 7 checkers in order. Return on first failure."""
         checkers = [
             self._check_syntax,
             self._check_select_star,
             self._check_maxmin,
             self._check_orderby_columns,
             self._check_join_validity,
+            self._check_distinct,
             self._check_empty_result,
         ]
         checker_args = [
@@ -46,6 +55,7 @@ class CheckerChain:
             (sql,),
             (sql,),
             (sql,),
+            (sql, question),
             (sql, db_path, db_manager),
         ]
 
@@ -208,7 +218,36 @@ class CheckerChain:
         return True, ''
 
     # ------------------------------------------------------------------
-    # Checker 6: Empty result guard
+    # Checker 6: DISTINCT missing
+    # ------------------------------------------------------------------
+
+    def _check_distinct(self, sql: str, question: str) -> Tuple[bool, str]:
+        """Flag when question signals uniqueness but SQL lacks DISTINCT."""
+        if not question:
+            return True, ''
+        q = question.lower()
+        if not any(sig in q for sig in self._DISTINCT_SIGNALS):
+            return True, ''
+
+        sql_upper = sql.upper()
+        has_distinct = bool(re.search(r'\bSELECT\s+DISTINCT\b', sql_upper))
+        has_count_distinct = bool(re.search(r'\bCOUNT\s*\(\s*DISTINCT\b', sql_upper))
+        has_group_by = bool(re.search(r'\bGROUP\s+BY\b', sql_upper))
+
+        if has_distinct or has_count_distinct or has_group_by:
+            return True, ''
+
+        return False, (
+            "The question asks for distinct/unique values "
+            f"(detected signal in: \"{question[:80]}\") "
+            "but the SQL does not use SELECT DISTINCT or COUNT(DISTINCT ...). "
+            "Add DISTINCT after SELECT (or use COUNT(DISTINCT col)) "
+            "so duplicate rows are eliminated. "
+            "Output only the corrected SQL."
+        )
+
+    # ------------------------------------------------------------------
+    # Checker 7: Empty result guard
     # ------------------------------------------------------------------
 
     def _check_empty_result(

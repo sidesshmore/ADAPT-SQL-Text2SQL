@@ -132,7 +132,8 @@ Reply with ONLY the pattern name, nothing else."""
         sub_questions: List[str],
         selected_examples: List[Dict],
         few_shot_generator=None,
-        intermediate_generator=None
+        intermediate_generator=None,
+        python_hint: str = ''
     ) -> Dict:
         """
         ENHANCED: Decomposed Generation with Subquery Handling
@@ -186,7 +187,8 @@ Reply with ONLY the pattern name, nothing else."""
             pruned_schema,
             schema_links,
             sub_sql_list,
-            best_examples
+            best_examples,
+            python_hint=python_hint
         )
         print(f"   SQL generated: {len(generated_sql)} characters")
         
@@ -540,7 +542,8 @@ Output ONLY the SQL query:"""
         pruned_schema: Dict[str, List[Dict]],
         schema_links: Dict,
         sub_sql_list: List[Dict],
-        examples: List[Dict]
+        examples: List[Dict],
+        python_hint: str = ''
     ) -> str:
         """
         Sub-step 6c.3: Convert NatSQL with sub-queries to Final SQL
@@ -591,13 +594,17 @@ Output ONLY the SQL query:"""
         prompt += "2. JOIN conditions use the correct foreign key columns from the schema above\n"
         prompt += "3. WHERE/HAVING filters match the original question exactly\n"
         prompt += "4. All parentheses are balanced and the statement is complete\n\n"
+        if python_hint:
+            prompt += f"\n## Oracle Result Hint\n{python_hint}\n"
+            prompt += "Use this hint to sanity-check your SQL — verify the output shape matches.\n\n"
+
         prompt += "Output ONLY the SQL query:\n"
-        
+
         sql = self._generate_with_llm(
             prompt,
             "You are an expert SQL generator specializing in nested queries."
         )
-        
+
         return self._clean_sql(sql)
     
     def _format_schema(

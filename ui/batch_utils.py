@@ -634,7 +634,18 @@ def generate_comprehensive_csv(results: List[Dict], timestamp: str, output_dir: 
         else:
             row['Retry_Attempts'] = None
             row['Retry_Success'] = None
-        
+
+        # H': GoT multi-candidate effectiveness logging
+        mc = r['result'].get('multi_candidate')
+        if mc:
+            row['GoT_Winner'] = mc.get('winner', '')
+            row['GoT_Primary_Rows'] = mc.get('primary_rows', None)
+            row['GoT_Alt_Rows'] = mc.get('alt_rows', None)
+        else:
+            row['GoT_Winner'] = None
+            row['GoT_Primary_Rows'] = None
+            row['GoT_Alt_Rows'] = None
+
         query_data.append(row)
     
     # =====================================================================

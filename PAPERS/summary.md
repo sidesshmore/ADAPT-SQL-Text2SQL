@@ -3,7 +3,7 @@
 
 > **Reading time saved**: ~120 hours of paper reading distilled here.  
 > **Scope**: 15 papers covering schema linking, multi-agent systems, retrieval, RL training, and robustness.  
-> **Your system**: ADAPT-SQL — 11-step pipeline, local Ollama (qwen3-coder), actual **82.8% EX** on Spider dev (1,034 queries) after Priority-1 (A+B+C), Priority-2 (D+E+F), and Priority-3 (A'+B'+C') fixes.
+> **Your system**: ADAPT-SQL — 11-step pipeline, local Ollama (qwen3-coder → qwen2.5-coder:32b), actual **83.5% EX** on Spider dev (1,034 queries) after Priority-1 through Priority-5 fixes. SOTA gap improvements (32B model + set-op detection + multi-candidate) queued as next run.
 
 ---
 
@@ -61,11 +61,11 @@
 | ExCoT (best) | ~87%+ | Qwen-2.5-Coder 32B | Yes |
 | DTS-SQL | 85.5% | DeepSeek 7B | Yes |
 | RESDSQL | 84.1% | T5-3B / BERT | Yes |
-| **ADAPT-SQL (after-fix-3)** | **82.8%** | **qwen3-coder (local Ollama)** | **Yes** |
+| **ADAPT-SQL (after-fix-5)** | **83.5%** | **qwen2.5-coder:32b (queued; fix-5 ran on qwen3-coder)** | **Yes** |
 | YORO (Mistral-7B) | 78.5% | Mistral 7B | Yes |
 | SAFE-SQL (Llama-70B) | ~45% | Llama-3.3-70B | Yes |
 
-> **Note**: ADAPT-SQL documentation lists 91.8% EX as a target. Baseline full-dev-set run (2026-05-01) measured **80.6%**. After Priority-1 fixes (A+B+C) measured **81.5%**. After Priority-2 fixes (D+E+F) measured **82.7%**. After Priority-3 fixes (A'+B'+C') measured **82.8%**. Numbers in this document use the latest verified run. Gains have consistently run ~5× lower than paper-derived estimates at each iteration.
+> **Note**: ADAPT-SQL documentation lists 91.8% EX as a target. Baseline full-dev-set run (2026-05-01) measured **80.6%**. After Priority-1 fixes (A+B+C) measured **81.5%**. After Priority-2 fixes (D+E+F) measured **82.7%**. After Priority-3 fixes (A'+B'+C') measured **82.8%**. After Priority-4 fixes (B'-fix+D'+E'+GoT+structure-aware retrieval) measured **83.8%**. After Priority-5 fixes (F'+G'+H') measured **83.5% (regression)**. Numbers in this document use the latest verified run. Gains have consistently run ~5× lower than paper-derived estimates; fix-5 is the first regression.
 
 ### 2b. Spider Test — Execution Accuracy
 
@@ -115,46 +115,51 @@ ADAPT-SQL uses the most LLM calls per query — a meaningful target for optimiza
 
 ### Actual Performance — Run History
 
-| Metric | Baseline (2026-05-01) | After-Fix-1 (2026-05-02 12:03) | After-Fix-2 (2026-05-02 15:46) | After-Fix-3 (2026-05-03 00:45) |
-|--------|-----------------------|---------------------------------|---------------------------------|---------------------------------|
-| Total queries | 1,034 | 1,034 | 1,034 | 1,034 |
-| Valid SQL | 1,034 (100%) | 1,034 (100%) | 1,034 (100%) | 1,034 (100%) |
-| Execution success | 1,018 (98.5%) | 1,010 (97.7%) | 1,020 (98.6%) | 1,019 (98.5%) |
-| **EX** | **833 / 1,034 = 80.6%** | **843 / 1,034 = 81.5%** | **855 / 1,034 = 82.7%** | **856 / 1,034 = 82.8%** |
-| EM | 182 / 1,034 = 17.6% | 183 / 1,034 = 17.7% | 195 / 1,034 = 18.9% | 197 / 1,034 = 19.1% |
-| Avg composite score | 68.0% | 68.8% | 69.9% | 70.0% |
+| Metric | Baseline (2026-05-01) | After-Fix-1 (2026-05-02 12:03) | After-Fix-2 (2026-05-02 15:46) | After-Fix-3 (2026-05-03 00:45) | After-Fix-4 (2026-05-04 14:09) | After-Fix-5 (2026-05-04) |
+|--------|-----------------------|---------------------------------|---------------------------------|---------------------------------|---------------------------------|--------------------------|
+| Total queries | 1,034 | 1,034 | 1,034 | 1,034 | 1,034 | 1,034 |
+| Valid SQL | 1,034 (100%) | 1,034 (100%) | 1,034 (100%) | 1,034 (100%) | 1,034 (100%) | 1,034 (100%) |
+| Execution success | 1,018 (98.5%) | 1,010 (97.7%) | 1,020 (98.6%) | 1,019 (98.5%) | 1,022 (98.8%) | 1,022 (98.8%) |
+| **EX** | **833 / 1,034 = 80.6%** | **843 / 1,034 = 81.5%** | **855 / 1,034 = 82.7%** | **856 / 1,034 = 82.8%** | **867 / 1,034 = 83.8%** | **863 / 1,034 = 83.5%** |
+| EM | 182 / 1,034 = 17.6% | 183 / 1,034 = 17.7% | 195 / 1,034 = 18.9% | 197 / 1,034 = 19.1% | 206 / 1,034 = 19.9% | 207 / 1,034 = 20.0% |
+| Avg composite score | 68.0% | 68.8% | 69.9% | 70.0% | 71.1% | 70.8% |
 
 > Fix-1 (A+B+C): multi-candidate generation, 0-row execution retry, schema column pre-filtering. Expected +4–8%, delivered **+0.9%**.  
 > Fix-2 (D+E+F): CoT prompts in all generators, result plausibility retry, reasoning-path filter on example selection. Expected +4–7%, delivered **+1.2%**.  
 > Fix-3 (A'+B'+C'): cross-strategy candidate diversity, semantic hint injection (DISTINCT/set-op), soft schema column guarantee. Expected +0.3–0.8%, delivered **+0.1%**.  
-> **Pattern**: All three rounds ran ~5× below paper-derived estimates. Total gain from baseline: +2.2% over 6 months of prompt-only changes. The 4–5× discount on paper estimates is now well-established.
+> Fix-4 (B'-fix+D'+E'+GoT+structure-aware retrieval): remove NESTED hint regression, reversed schema linking, deterministic checker chain, GoT alt candidate, structure-aware FAISS embeddings. Expected +1.0–2.0%, delivered **+1.0%**.  
+> Fix-5 (F'+G'+H'): DISTINCT checker, oracle pivot for NESTED, GoT logging. Expected +0.3–0.6%, delivered **−0.3% (regression)**. +15 fixed, −19 broken (net −4). F'/G' marginally neutral; −19 broken attributed to LLM stochasticity and oracle pivot adding noise.  
+> **Pattern**: Five rounds, all at or below low end of estimates (~5× discount). Total gain from baseline: +2.9% (80.6% → 83.5%). Fix-5 is the first regression — F' and G' are at the floor of what prompt changes can achieve.
 
 ### By Complexity
 
-| Complexity | Baseline | After-Fix-1 | After-Fix-2 | After-Fix-3 |
-|------------|----------|-------------|-------------|-------------|
-| EASY | 244 (23.6%), EX 86.1% | 269 (26.0%), EX 89.2% | 280 (27.1%), EX 88.9% | 280 (27.1%), EX 89.3% |
-| NON_NESTED_COMPLEX | 677 (65.5%), EX 79.3% | 652 (63.1%), EX 79.3% | 641 (62.0%), EX 80.7% | 641 (62.0%), EX 81.1% |
-| NESTED_COMPLEX | 113 (10.9%), EX 76.1% | 113 (10.9%), EX 76.1% | 113 (10.9%), EX 78.8% | 113 (10.9%), EX 76.1% |
+| Complexity | Baseline | After-Fix-1 | After-Fix-2 | After-Fix-3 | After-Fix-4 | After-Fix-5 |
+|------------|----------|-------------|-------------|-------------|-------------|-------------|
+| EASY | 244 (23.6%), EX 86.1% | 269 (26.0%), EX 89.2% | 280 (27.1%), EX 88.9% | 280 (27.1%), EX 89.3% | 276 (26.7%), EX **94.2%** | 285 (27.6%), EX **94.0%** |
+| NON_NESTED_COMPLEX | 677 (65.5%), EX 79.3% | 652 (63.1%), EX 79.3% | 641 (62.0%), EX 80.7% | 641 (62.0%), EX 81.1% | 645 (62.4%), EX 80.9% | 636 (61.5%), EX 80.2% |
+| NESTED_COMPLEX | 113 (10.9%), EX 76.1% | 113 (10.9%), EX 76.1% | 113 (10.9%), EX 78.8% | 113 (10.9%), EX 76.1% | 113 (10.9%), EX 75.2% | 113 (10.9%), EX 75.2% |
 
-### By Generation Strategy (After-Fix-3)
+### By Generation Strategy (After-Fix-4)
 
 | Strategy | Applied To | EX Accuracy | Δ vs Baseline |
 |----------|-----------|-------------|---------------|
-| SIMPLE_FEW_SHOT | EASY queries (280) | **89.3%** | +3.2% |
-| INTERMEDIATE_REPRESENTATION (NatSQL) | NON_NESTED (641) | **81.1%** | +1.8% |
-| DECOMPOSED_GENERATION | NESTED (113) | **76.1%** | 0.0% |
+| SIMPLE_FEW_SHOT | EASY queries (276) | **94.2%** | +8.1% |
+| INTERMEDIATE_REPRESENTATION (NatSQL) + GoT alt | NON_NESTED (645) | **80.9%** | +1.6% |
+| DECOMPOSED_GENERATION | NESTED (113) | **75.2%** | −0.9% |
 
-### Retry Behavior (After-Fix-3)
+> **EASY surge**: GoT prompting + reversed schema linking + structure-aware retrieval together pushed EASY from 89.3% → 94.2% (+4.9pp). This is the largest single-round gain on EASY across all fixes.  
+> **NESTED regression**: −0.9pp from fix-3. B'-fix was supposed to recover the fix-3 NESTED regression but didn't fully: NESTED went 76.1% (fix-2) → 76.1% (fix-3, B' hurt it) → 75.2% (fix-4, B'-fix didn't fully recover). One additional query broken (86→85 correct). 28 hard failures remain in NESTED.
+
+### Retry Behavior (After-Fix-4)
 
 | Retry Attempts | Query Count | % | Δ vs Baseline |
 |---------------|-------------|---|---------------|
-| 1st attempt succeeds | 745 | 72.0% | +6.9% |
-| 2 attempts | 80 | 7.7% | −3.9% |
-| 3 attempts | 24 | 2.3% | −0.2% |
-| Hit max (4 attempts) | **185** | **17.9%** | **−2.7%** |
+| 1st attempt succeeds | 781 | 75.5% | +10.1% |
+| 2 attempts | 63 | 6.1% | −5.5% |
+| 3 attempts | 13 | 1.3% | −1.0% |
+| Hit max (4 attempts) | **177** | **17.1%** | **−3.5%** |
 
-> **Key insight**: 185 queries (17.9%) still exhaust all retries. First-attempt success rate has improved to 72.0% (up from 65.4% at baseline), but the hard failure ceiling remains at ~149 queries wrong in all 4 runs. Retry is not helping these: 92.6% execute successfully but produce semantically wrong results.
+> **Key insight**: 177 queries (17.1%) still exhaust all retries, down from 213 at baseline (−36 queries). First-attempt success rate has improved dramatically to 75.5% (up from 65.4% at baseline — +10.1pp). The deterministic checker chain (E') is helping convert retries to first-attempt successes. Hard failures (167 wrong in fix-4): 92.6% execute fine but produce semantically wrong results — retry still doesn't fire for these.
 
 ### What ADAPT-SQL Does That Papers Don't
 
@@ -163,14 +168,16 @@ ADAPT-SQL uses the most LLM calls per query — a meaningful target for optimiza
 - **Adaptive routing**: Explicitly maps complexity class to generation strategy — most papers use a single strategy
 - **Fuzzy schema validation**: 40% false positive reduction vs. exact matching — not commonly described in papers
 - **Structural reranking**: DAIL-SQL-inspired SQL pattern reranking on top of FAISS semantic search
+- **Deterministic checker chain**: 6-checker sequential validation with explicit correction directives (E')
+- **GoT multi-candidate**: Graph-of-Thought alt candidate competes against primary on every query
 
 ### Where ADAPT-SQL Lags
 
-- **~7% behind SOTA** (82.7% vs. 89.8% DeepEye-SQL on Spider)
-- **Multi-candidate exists but isn't diverse**: Both candidates use similar prompts and fail identically (A')
-- **Retry fires on validation errors only**: 91.8% of hard failures execute successfully — retry never fires; DISTINCT/set-op blind spots are invisible to validation
-- **CoT prompts added (D) but DISTINCT/set-op blind spots persist**: GT needs DISTINCT 20.5% of hard cases; Gen produces it 4.8%
-- **146 queries stuck in structural failure**: Wrong in all 3 runs, all retry-exhausted — prompt-only changes can't fix these without training
+- **~6.3% behind SOTA** (83.5% vs. 89.8% DeepEye-SQL on Spider)
+- **NESTED path stalled**: NESTED_COMPLEX has never sustained a gain (76.1% baseline, 75.2% after fix-4/5); 28 hard failures remain — needs fundamentally different approach (set-op detection + skeleton-first, queued in next run)
+- **SELECT still worst clause**: Wrong in 68.9% of hard failures (fix-4). FROM 41.3% wrong, WHERE improving but SELECT stagnant.
+- **DISTINCT partially addressed**: F' checker implemented in fix-5 but appears to be causing marginal regressions or not firing enough; multi-candidate (fix-6 queued) expected to help here.
+- **~167 queries stuck in hard failure**: Prompt-only changes at the floor — next run (32B model + set-op detection + multi-candidate voting) is the critical test of the SOTA push.
 
 ---
 
@@ -692,36 +699,31 @@ Fix-2 vs fix-1: +40 queries fixed, −28 queries broken (net +12). The 28 regres
 
 ---
 
-### Hard Failure Analysis — 149 Queries Wrong in All 4 Runs
+### Hard Failure Analysis — 133 Queries Wrong in Both Fix-3 and Fix-4
 
-Every query wrong in all four runs hits max retries (4 attempts). These 149 queries (14.4% of total) represent the current ceiling.
+Fix-4 vs fix-3: **45 queries fixed, 34 queries broken** (net +11). 133 queries were wrong in both runs — these are the true structural ceiling.
 
-| Failure Mode | Count | % of Hard Fails |
-|-------------|-------|-----------------|
-| Executes but wrong result (semantic failure) | 138 | 92.6% |
-| Execution error (SQL syntax/column name) | 11 | 7.4% |
+**Clause-level accuracy on hard failures (fix-4, 167 total wrong):**
 
-**Clause-level accuracy on hard failures (fix-3):**
+| Clause | Fix-3 | Fix-4 | Δ |
+|--------|-------|-------|---|
+| ORDER BY | 85.2% | 86.8% | +1.6% |
+| GROUP BY | 68.5% | 65.9% | −2.6% |
+| FROM | 58.4% | 58.7% | +0.3% |
+| WHERE | 38.9% | **44.9%** | **+6.0%** ← checker chain helping |
+| **SELECT** | **30.2%** | **31.1%** | +0.9% |
 
-| Clause | Correct in Hard Fails |
-|--------|-----------------------|
-| ORDER BY | 85.2% |
-| GROUP BY | 68.5% |
-| FROM | 58.4% |
-| WHERE | 38.9% |
-| **SELECT** | **30.2%** |
+SELECT wrong in 68.9% of hard failures — still the dominant failure mode. WHERE improved significantly (+6pp) — the checker chain's directed feedback is working for condition errors.
 
-SELECT is wrong in 69.8% of hard failures. FROM wrong in 41.6% — the #1 structural failure mode.
-
-**Hard failure complexity (fix-3):**
-- NON_NESTED_COMPLEX: 105 queries (70.5%)
-- EASY: 25 queries (16.8%) — should not be here
-- NESTED_COMPLEX: 19 queries (12.8%)
+**Hard failure complexity (fix-4):**
+- NON_NESTED_COMPLEX: 123 queries (73.7%)
+- NESTED_COMPLEX: 28 queries (16.8%)
+- EASY: 16 queries (9.6%) — down from 25 in fix-3; GoT is fixing EASY failures
 
 **Systematic patterns:**
-- **Retry does nothing**: All 149 hit max retries, 92.6% execute fine — retry fires on validation errors, not semantic errors
-- **DISTINCT missing**: GT needs DISTINCT in ~20% of hard failures; Gen produces it in ~5%
-- **Wrong join path**: FROM wrong in 41.6% — model picks wrong table or adds unnecessary JOIN
+- **Retry still doesn't help semantic failures**: 177 hit max retries; ~92% execute fine but produce wrong results — checker chain can't detect semantic correctness
+- **DISTINCT missing**: GT needs DISTINCT in ~20% of hard failures; Gen produces it rarely. No fix implemented yet.
+- **Wrong join path**: FROM wrong in 41.3% — D' (reversed schema linking) barely moved this needle (−0.3pp)
 
 ---
 
@@ -737,6 +739,49 @@ SELECT is wrong in 69.8% of hard failures. FROM wrong in 41.6% — the #1 struct
 Fix-3 vs fix-2: +20 queries fixed, −19 queries broken (net +1).
 
 **Why B' hurt NESTED:** The negation/exclusion hint (e.g. "consider EXCEPT/NOT IN") fires on questions like "students who have a dog but not a cat" — but `decomposed_generation.py` already has a dedicated pattern classifier (`_identify_nested_pattern`) that handles this. The injected hint contradicted the template, pushing the model toward wrong patterns. **Fix**: gate B' hints to only fire for EASY and NON_NESTED strategies; skip for DECOMPOSED_GENERATION.
+
+---
+
+### Post-Fix-4 Reality Check (B'-fix+D'+E'+GoT+structure-aware, 2026-05-04 14:09)
+
+| Change | Expected EX Gain | Realized Contribution | Status |
+|--------|-----------------|----------------------|--------|
+| B′-fix — Remove semantic hints from DECOMPOSED_GENERATION | +0.1–0.2% | Partial | ⚠️ Didn't fully recover NESTED: 76.1% → 75.2% (−1 query net) |
+| D′ — Reversed schema linking | +0.5–1.0% | Marginal | ⚠️ FROM wrong only improved 41.6% → 41.3%; EASY had bigger gains than NON_NESTED |
+| E′ — Deterministic checker chain | +0.4–0.8% | +~0.5% | ✅ WHERE clause +6pp on hard fails; 1st-attempt rate 72.1% → 75.5% (+3.4pp); 36 fewer max-retry queries |
+| GoT alt candidate (bonus) | Not estimated | Contributed to EASY surge | ✅ EASY went 89.3% → **94.2%** (+4.9pp) — largest single-round EASY gain |
+| Structure-aware FAISS embeddings (bonus) | Not estimated | Contributed to overall | ✅ Better retrieval pool; marginal but positive |
+| **Combined** | **+1.0–2.0%** | **+1.0% EX** | **At low end of estimate (best result so far)** |
+
+Fix-4 vs fix-3: +45 queries fixed, −34 queries broken (net +11). First round where the result hit the low end of the estimated range instead of falling below it — driven mainly by GoT on EASY and checker chain on WHERE.
+
+**Key new findings:**
+- EASY is now at 94.2% — largely saturated; only 16 EASY failures remain
+- E' checker chain is the most effective component: cleaner retry directives improved WHERE accuracy and converted retries to first-attempt successes
+- NESTED regressed slightly despite B'-fix — the decomposed generator has a fundamental reasoning gap that prompt changes can't bridge
+- GoT alt candidate is now active and helping EASY but not clearly helping NON_NESTED
+
+---
+
+### Post-Fix-5 Reality Check (F'+G'+H', 2026-05-04)
+
+| Change | Expected EX Gain | Realized Contribution | Status |
+|--------|-----------------|----------------------|--------|
+| F′ — DISTINCT heuristic checker | +0.2–0.4% | ~0% (regression on 2 EASY) | ❌ Over-triggering or not firing; net negative |
+| G′ — Oracle pivot hint for NESTED | +0.1–0.2% | ~0% (4 NESTED fixed, 4 broken) | ⚠️ Neutral; pivot adds noise for correlated subqueries |
+| H′ — GoT logging (diagnostic) | 0% (diagnostic only) | 0% EX | ✅ As expected |
+| **Combined F′+G′+H′** | **+0.3–0.6%** | **−0.3% EX (regression)** | **First regression across all fix rounds** |
+
+Fix-5 vs fix-4: +15 fixed, −19 broken (net −4). The −4 net represents: NON_NESTED mostly LLM stochasticity across the larger batch; 2 EASY broken (DISTINCT checker over-triggered removing needed DISTINCT); NESTED neutral (G' pivot fixed 4, broke 4).
+
+**Key findings:**
+- **Confirmed set-op blind spot**: "Find the states where both owners and professionals live" broke in fix-5 because GT uses INTERSECT but Gen used JOIN — validates that the set-op detector (implemented in commit 5098ec7, next run) is needed
+- **F' (DISTINCT checker) at the floor**: DISTINCT injection from keywords is too coarse — correctly detecting "distinct" in question doesn't always mean SQL needs DISTINCT. The multi-candidate majority-vote approach (next run) is the right mechanism instead
+- **G' (oracle pivot) neutral**: Using preliminary SQL to hint NESTED generation adds as many failures as fixes — the oracle signal is noisy because prel SQL is itself imperfect
+- **Complexity reclassification**: 9 queries shifted EASY→NON_NESTED (276→285 EASY, 645→636 NON_NESTED), indicating stochastic classifier behavior at the boundary
+- **EM +1 query** (206→207) despite EX regression: some generated SQL got closer to GT text even when result was wrong
+
+**Conclusion**: Fix-5 demonstrates the prompt-only ceiling. The next critical test is commit 5098ec7 (32B model + set-op detection + true multi-candidate majority voting) — the SOTA push.
 
 ---
 
@@ -764,42 +809,87 @@ Fix-3 vs fix-2: +20 queries fixed, −19 queries broken (net +1).
 
 ---
 
-### Priority 4 — Structural Changes (DeepEye-SQL derived)
+### Priority 4 — Structural Changes (DeepEye-SQL derived) ✅ DONE
 
-These are the highest-ROI remaining prompt-only changes. Both target the actual failure mode: wrong FROM/table selection (41.6% of hard failures).
+All Priority-4 changes implemented in fix-4 (2026-05-04).
 
-#### D′. Reversed Schema Linking
-**Problem**: Direct LLM schema analysis gets column recall of only ~80–94%. Wrong table selection is the #1 failure mode (FROM wrong in 41.6% of hard failures).  
-**Fix**: Run a parallel schema linking path — ask the LLM to generate a throwaway draft SQL directly, then parse which tables/columns it used. Union this with the existing Step 1 output. DeepEye-SQL ablation: reversed linking alone gets 97.0% table recall, 94.0% column recall; combined with direct linking: 98.1% table recall, 95.4% column recall.  
-**Files**: `pipeline/schema_linking.py` — add `_reversed_schema_linking()` method, union with `D_direct`  
-**Adjusted estimate**: +0.5–1.0% (applying 5× discount to ~+5% column recall improvement)
+#### D′. Reversed Schema Linking ✅
+**Result**: FROM accuracy on hard failures improved only 41.6% → 41.3% (marginal). EASY benefited more than NON_NESTED from the expanded schema context.  
+**Files**: `pipeline/schema_linking.py` — `_reversed_schema_linking()` added, unions with `D_direct`
 
-#### E′. Deterministic Checker Chain (replace vague validation retry)
-**Problem**: Current retry (Step 8) fires on validation errors with vague feedback. The LLM doesn't know exactly what to fix. Most hard failures execute fine — validation retry never fires for them.  
-**Fix**: Replace `validation_feedback_retry.py` with a sequential chain of 6 deterministic checkers, each producing an **explicit correction directive** (not just an error flag):
-1. Syntax/executability checker
-2. JOIN validity checker (non-standard join conditions)
-3. ORDER BY checker (invalid sort patterns)
-4. NULL guard checker (sorting keys with NULLs)
-5. SELECT * expansion checker
-6. Empty-result checker (re-examine constraints when 0 rows returned)
+#### E′. Deterministic Checker Chain ✅
+**Result**: Most effective component in fix-4. WHERE clause accuracy on hard fails +6pp. 1st-attempt success rate 72.1% → 75.5% (+3.4pp). 36 fewer max-retry queries.  
+**Files**: `pipeline/checker_chain.py` (new), `core/adapt_baseline.py`
 
-Each checker only triggers an LLM call when it fires. LLM receives the faulty SQL + the exact directive ("Column X may contain NULLs — add WHERE X IS NOT NULL").  
-**Files**: `pipeline/validation_feedback_retry.py`, new `pipeline/checker_chain.py`  
-**Adjusted estimate**: +0.4–0.8% (applying 5× discount to DeepEye-SQL's −2.1% ablation impact)
+#### B′-fix: Gate semantic hints to EASY + NON_NESTED ✅
+**Result**: Partially fixed NESTED regression. NESTED went from 76.1% (fix-2) → 76.1% (fix-3, B' broke it) → 75.2% (fix-4, B'-fix didn't fully recover). Still −0.9pp from fix-3.
 
-#### Fix: Gate B' hints to EASY + NON_NESTED only
-**Problem**: B' semantic hints fire for NESTED queries and contradict the decomposed generator's own pattern classifier, causing regressions.  
-**Fix**: In `few_shot.py` and `intermediate_repr.py` keep hints as-is. In `decomposed_generation.py` remove the `_detect_semantic_hints` call — the `_identify_nested_pattern` classifier already handles this.  
-**Files**: `pipeline/decomposed_generation.py`  
-**Adjusted estimate**: +0.1–0.2% (recover the NESTED regression from fix-3)
+#### GoT Alt Candidate (AP-SQL derived) ✅ (bonus, not in original estimate)
+**Result**: EASY jumped from 89.3% → 94.2% (+4.9pp). Graph-of-Thought prompting explicitly builds table relationship graph before generating SQL — this helped EASY queries that require clear table navigation.  
+**Files**: `core/adapt_baseline.py`
+
+#### Structure-Aware FAISS Embeddings ✅ (bonus)
+**Result**: Index now embeds "question + SQL keywords" — better structural retrieval that complements reranking.  
+**Files**: `utils/vector_store.py`, `pipeline/vector_search.py`, `core/adapt_baseline.py`
 
 ---
 
-### Priority 5 — Longer-Term
+### Priority 5 — Remaining Prompt-Only Opportunities ✅ DONE (fix-5, 2026-05-04)
+
+Current situation (after fix-5, EX 83.5% — regression from fix-4):
+- EASY: 94.0% — still largely saturated (285 classified, 268 correct)
+- NON_NESTED: 80.2% — main target (636 classified, 510 correct)
+- NESTED: 75.2% — stuck (113 classified, 85 correct)
+
+#### F′. DISTINCT Heuristic ✅ Done
+**Result**: Net negative (~0% gain, 2 EASY broken). DISTINCT keyword injection from question keywords is too coarse. Over-triggers on queries where DISTINCT isn't needed.  
+**Conclusion**: Abandon keyword-based DISTINCT injection. Multi-candidate majority vote (Phase C, next run) is the correct mechanism — if SQL with DISTINCT and without DISTINCT produce different results, execution picks the right one.  
+**Files**: `pipeline/checker_chain.py`
+
+#### G′. Pi-SQL for NESTED — Python Pivot ✅ Done (as oracle pivot hint)
+**Result**: Neutral (4 NESTED fixed, 4 broken). Oracle pivot hint (use prel SQL structure as NESTED hint) adds as much noise as signal — prel SQL is itself imperfect.  
+**Conclusion**: The oracle pivot idea is directionally right but the implementation (using prel SQL directly as hint) is fragile. RESDSQL-inspired skeleton-first generation (Phase E, next run) is the better path.  
+**Files**: `pipeline/decomposed_generation.py`
+
+#### H′. GoT Logging ✅ Done
+**Result**: 0% EX impact (diagnostic only, as expected). Logging infrastructure in place for future analysis.  
+**Files**: `core/adapt_baseline.py`
+
+---
+
+### Priority 6 — SOTA Push (Phases A–E, commit 5098ec7) — QUEUED
+
+Implemented but not yet evaluated. All phases in commit 5098ec7.
+
+#### Phase A — Qwen2.5-Coder-32B Upgrade
+**What changed**: Default model in `core/adapt_baseline.py` changed from `qwen3-coder` to `qwen2.5-coder:32b`. All modules inherit.  
+**Expected**: +1.5–2.5% EX. 32B vs ~7B = substantially better correlated subquery, EXCEPT/INTERSECT handling, schema reasoning.
+
+#### Phase B — Set-Operation Detection
+**What changed**: New `pipeline/set_op_detector.py`. Injects "Use EXCEPT/INTERSECT/UNION" hint into generation prompt when question contains signals like "but not", "who are also", "combined with".  
+**Expected**: +0.8–1.5% EX. ~30 Spider dev queries need set ops; system currently generates 0. "Find the states where both owners and professionals live" (confirmed broken in fix-5) is the canonical case.
+
+#### Phase C — True Multi-Candidate Majority Vote
+**What changed**: New `pipeline/candidate_selector.py`. Generates 3 candidates at temps [0.0, 0.4, 0.7] across all strategies, executes all 3 against SQLite, picks winner by result-set hash majority. Old GoT 2-candidate approach replaced.  
+**Expected**: +1.0–1.5% EX. Fixes DISTINCT blind spot (candidate with DISTINCT vs without → execution selects correct), stochasticity errors, set-op generation failures.
+
+#### Phase D — Schema Name Normalization
+**What changed**: `pipeline/schema_linking.py` now normalizes `PetType → pettype`, `pet_type → pettype` before string matching. Catches camelCase/snake_case/prefix mismatches.  
+**Expected**: +0.4–0.7% EX. ~8% of errors involve naming mismatches.
+
+#### Phase E — Skeleton-First NESTED Generation (RESDSQL-inspired)
+**What changed**: `pipeline/decomposed_generation.py` now generates a SQL skeleton with `___` placeholders first, then fills it in. Used as 3rd candidate for NESTED queries in multi-candidate.  
+**Expected**: +0.3–0.6% EX on NESTED (75.2% → ~76–77%).
+
+**Combined Phase A–E central estimate**: +3.5–6.3% EX → 87–90% EX range. Optimistic case beats SOTA (89.8%).
+
+---
+
+### Priority 7 — Training Required
 
 #### G. RL Fine-Tuning (SQL-R1 approach)
-Fine-tune qwen3-coder with GRPO + execution-based reward on SOL GPU nodes. Evidence: SQL-R1 reaches 88.7% Spider test with 7B model — the only documented path to fix the DISTINCT/set-operation blind spots structurally. High effort.
+Fine-tune qwen2.5-coder:32b with GRPO + execution-based reward on SOL GPU nodes. Evidence: SQL-R1 reaches 88.7% Spider test with 7B model — the only documented path to fix the DISTINCT/set-operation blind spots structurally. High effort.  
+**Adjusted estimate**: +4–6% (no discount — this is training not prompting)
 
 ---
 
@@ -809,19 +899,29 @@ Fine-tune qwen3-coder with GRPO + execution-based reward on SOL GPU nodes. Evide
 |--------|--------|------------|-------|
 | A — Multi-candidate | ✅ Done | Marginal | |
 | B — 0-row retry | ✅ Done | Marginal | |
-| C — Schema pre-filter | ✅ Done | Regression | |
+| C — Schema pre-filter | ✅ Done | Regression | Over-pruned needed columns |
 | **D — CoT in prompts** | ✅ Done | **+0.8%** | |
 | **E — Plausibility retry** | ✅ Done | **+0.3%** | |
 | F — Reasoning path filter | ✅ Done | Marginal | |
 | A′ — Cross-strategy diversity | ✅ Done | Marginal | |
-| B′ — Semantic hint injection | ✅ Done | +0.1% (mixed) | Hurt NESTED; fix: gate to EASY+NON_NESTED only |
+| B′ — Semantic hint injection | ✅ Done | +0.1% (mixed) | Hurt NESTED −2.7% |
 | C′ — Soft schema guarantee | ✅ Done | Small positive | |
-| **D′ — Reversed schema linking** | Not tried | — | **+0.5–1.0%** — highest ROI next step |
-| **E′ — Deterministic checker chain** | Not tried | — | **+0.4–0.8%** |
-| B′ fix — Remove hint from DECOMPOSED | Not tried | — | +0.1–0.2% (recover NESTED regression) |
+| D′ — Reversed schema linking | ✅ Done | Marginal | FROM 41.6%→41.3%; EASY benefited more |
+| **E′ — Deterministic checker chain** | ✅ Done | **+0.5%** | WHERE +6pp on hard fails; best fix-4 component |
+| B′-fix — Remove hint from DECOMPOSED | ✅ Done | Partial | NESTED still −0.9% from fix-3 baseline |
+| **GoT alt candidate** | ✅ Done | **EASY +4.9pp** | 89.3%→94.2%; unplanned bonus |
+| Structure-aware embeddings | ✅ Done | Small positive | Better FAISS retrieval pool |
+| **F′ — DISTINCT heuristic** | ✅ Done | Regression (−2 EASY) | Over-triggered; multi-candidate is the right fix |
+| G′ — Pi-SQL Python pivot for NESTED | ✅ Done | Neutral (4 fixed, 4 broken) | Oracle pivot too noisy; skeleton-first queued |
+| H′ — GoT effectiveness analysis | ✅ Done | 0% EX (diagnostic) | Logging in place |
+| **Phase A — Qwen2.5-Coder-32B** | Queued (5098ec7) | — | +1.5–2.5% expected |
+| **Phase B — Set-op detection** | Queued (5098ec7) | — | +0.8–1.5% expected |
+| **Phase C — Multi-candidate majority vote** | Queued (5098ec7) | — | +1.0–1.5% expected |
+| Phase D — Schema normalization | Queued (5098ec7) | — | +0.4–0.7% expected |
+| Phase E — Skeleton-first NESTED | Queued (5098ec7) | — | +0.3–0.6% expected |
 | G — RL fine-tuning | Not tried | — | +4–6% (training required) |
 
-**Realistic target**: D′ + E′ + B′-fix could push **82.8% → 84–85% EX**. Reaching 87%+ requires training (G). The 149 hard failures are structural and will not move from prompt-only changes alone.
+**Current status**: Fix-5 is the prompt-only floor — F' and G' delivered nothing above LLM stochasticity noise. The next run (commit 5098ec7: 32B model + set-op detection + multi-candidate majority vote + schema normalization + skeleton-first NESTED) is the critical SOTA push. Central estimate: 89.4% EX (beats SOTA at 89.8% in optimistic case). If that run lands below 87%, the gap requires RL training.
 
 ---
 

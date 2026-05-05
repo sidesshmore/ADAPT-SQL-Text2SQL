@@ -46,7 +46,6 @@ class CheckerChain:
             self._check_maxmin,
             self._check_orderby_columns,
             self._check_join_validity,
-            self._check_distinct,
             self._check_empty_result,
         ]
         checker_args = [
@@ -55,7 +54,6 @@ class CheckerChain:
             (sql,),
             (sql,),
             (sql,),
-            (sql, question),
             (sql, db_path, db_manager),
         ]
 

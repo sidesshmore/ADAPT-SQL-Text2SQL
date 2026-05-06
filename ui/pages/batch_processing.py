@@ -166,10 +166,8 @@ def main():
         enable_full_retry = st.checkbox("🔄 Full Pipeline Retry", value=True)
         
         if enable_full_retry:
-            st.markdown("**Retry Settings:**")
             max_full_retries = st.slider("Max Full Retries", 0, 5, 2)
-            min_eval_score = st.slider("Min Evaluation Score", 0.0, 1.0, 0.8, 0.05)
-            st.caption(f"Retries if EX=0 or score < {min_eval_score}")
+            st.caption("Retries only when EX = 0")
         
         st.markdown("---")
         
@@ -280,7 +278,7 @@ def main():
     if enable_evaluation:
         options_text.append("📊 Evaluation")
     if enable_full_retry:
-        options_text.append(f"🔄 Full Retry (max {max_full_retries}, score ≥{min_eval_score})")
+        options_text.append(f"🔄 Full Retry (max {max_full_retries}, EX=0 only)")
     
     st.caption(" | ".join(options_text))
     
@@ -303,7 +301,6 @@ def main():
             retry_engine = EnhancedRetryEngine(
                 model=model,
                 max_full_retries=max_full_retries,
-                min_evaluation_score=min_eval_score
             )
         
         # Progress tracking

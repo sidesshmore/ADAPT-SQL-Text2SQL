@@ -52,8 +52,14 @@ else
 fi
 
 # ── Streamlit ─────────────────────────────────────────────────────────────
-echo ""
-echo "[✓] Starting Streamlit on port $STREAMLIT_PORT..."
+if [ "$1" = "batch" ]; then
+    STREAMLIT_TARGET=$PROJECT/ui/pages/batch_processing.py
+    echo "[✓] Starting Streamlit (batch mode) on port $STREAMLIT_PORT..."
+else
+    STREAMLIT_TARGET=$PROJECT/ui/app.py
+    echo "[✓] Starting Streamlit on port $STREAMLIT_PORT..."
+fi
+
 echo "    Access via OOD browser, or SSH tunnel from your Mac:"
 echo "    ssh -L $STREAMLIT_PORT:localhost:$STREAMLIT_PORT smore123@sol.rc.asu.edu"
 echo "    Then open http://localhost:$STREAMLIT_PORT"
@@ -61,7 +67,7 @@ echo ""
 echo "    In the sidebar: set Ollama Host = http://127.0.0.1:$OLLAMA_PORT"
 echo ""
 
-streamlit run $PROJECT/ui/app.py \
+streamlit run $STREAMLIT_TARGET \
     --server.port $STREAMLIT_PORT \
     --server.enableCORS=false \
     --server.enableXsrfProtection=false

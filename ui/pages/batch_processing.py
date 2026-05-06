@@ -153,13 +153,9 @@ def main():
         
         checkpoint_interval = st.number_input("Checkpoint Interval", min_value=5, max_value=100, value=25, step=5)
         st.caption(f"Saves progress every {checkpoint_interval} queries")
-        
-        # Fixed directories
-        checkpoint_dir = "./batch_results"
-        results_csv_dir = "./results"
-        
-        st.info(f"📂 Checkpoints: `{checkpoint_dir}`")
-        st.info(f"📊 CSV Results: `{results_csv_dir}`")
+
+        checkpoint_dir = st.text_input("📂 Checkpoint Dir", value="./batch_results")
+        results_csv_dir = st.text_input("📊 CSV Results Dir", value="./results")
         
         st.markdown("---")
         st.markdown("### 🔧 Processing Options")

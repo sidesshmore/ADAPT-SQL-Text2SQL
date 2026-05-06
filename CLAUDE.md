@@ -316,6 +316,30 @@ In the Streamlit sidebar, set **Ollama Host** to `http://127.0.0.1:11437`.
 ### Critical: Ollama Host Configuration
 `ollama.chat()` and `ollama.embeddings()` are patched at module level in `core/adapt_baseline.py` to read `OLLAMA_HOST` dynamically at call time. This is necessary because the ollama Python library binds its default client at import time — setting `OLLAMA_HOST` after import has no effect without this patch. Do not remove this patch.
 
+### Parallel Batch Processing (4 jobs × 200 queries)
+
+Run 4 OOD VSCode sessions simultaneously, each with: **8 CPU / 40 GiB / gpu:a100:1 / 0-3 wall time**.
+
+In each Streamlit batch UI (`streamlit run ui/pages/batch_processing.py`), set:
+
+| Session | Start Index | Num Queries | Checkpoint Dir | CSV Results Dir |
+|---|---|---|---|---|
+| Job 1 | 0 | 200 | `./batch_results/range_0_200` | `./results/range_0_200` |
+| Job 2 | 200 | 200 | `./batch_results/range_200_400` | `./results/range_200_400` |
+| Job 3 | 400 | 200 | `./batch_results/range_400_600` | `./results/range_400_600` |
+| Job 4 | 600 | 200 | `./batch_results/range_600_800` | `./results/range_600_800` |
+
+After all 4 finish, merge into one CSV:
+
+```bash
+cd /scratch/smore123/ADAPT-SQL-Text2SQL
+source venv/bin/activate
+
+python merge_checkpoints.py \
+  --auto "batch_results/range_*/final_checkpoint_*.pkl" \
+  --out merged_results
+```
+
 ### Known Issues Fixed
 - `from structural_similarity import` → must be `from utils.structural_similarity import`
 - `from validate_sql import` → must be `from pipeline.validate_sql import`

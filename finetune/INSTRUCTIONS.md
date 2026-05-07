@@ -6,7 +6,22 @@ then exports it as an Ollama model. The resulting model replaces the LLM
 component inside the existing ADAPT-SQL pipeline — all other pipeline
 improvements (schema linking, multi-candidate, EX-only retry, etc.) remain.
 
-Starting point: 83.7% EX (qwen2.5-coder:32b + full pipeline, git a3571ab).
+**Best verified EX before fine-tuning: 83.8%** (After-Fix-4, 867/1034 queries,
+git tag context: B'-fix + checker chain + GoT + structure-aware FAISS).
+Source: PAPERS/summary.md, After-Fix-4 row.
+
+Fix-5 (83.5%) was a regression — DISTINCT checker disabled in commit 059f209.
+The SOTA improvements (qwen2.5-coder:32b + set-op detection + multi-candidate
+majority vote, commit 5098ec7) are queued but unverified.
+
+Fine-tuning relationship to pipeline:
+  - train_sft.py / train_grpo.py train Qwen/Qwen2.5-Coder-32B-Instruct
+    (the base HuggingFace weights) — NOT the pipeline code
+  - The output model replaces the qwen2.5-coder:32b Ollama model
+  - All pipeline improvements (schema linking, retry, normalization, etc.)
+    stay active and stack on top of the fine-tuned LLM
+  - Expected: 83.8% (pipeline) + fine-tuned LLM → ~86–88% EX
+
 Expected improvement: +2–4% EX from domain-adapted weights.
 
 ---

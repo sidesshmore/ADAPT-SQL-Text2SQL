@@ -7,7 +7,14 @@ PROJECT=$SCRATCH/ADAPT-SQL-Text2SQL
 OLLAMA_BIN=$SCRATCH/ollama_install/bin/ollama
 OLLAMA_MODELS=$SCRATCH/ollama_models
 OLLAMA_PORT=11437
+# Auto-detect free port starting from 8501
 STREAMLIT_PORT=8501
+for port in 8501 8502 8503 8504 8505; do
+    if ! ss -tlnp 2>/dev/null | grep -q ":$port " && ! lsof -i :$port &>/dev/null 2>&1; then
+        STREAMLIT_PORT=$port
+        break
+    fi
+done
 
 # ── Environment ────────────────────────────────────────────────────────────
 export HOME=/home/smore123

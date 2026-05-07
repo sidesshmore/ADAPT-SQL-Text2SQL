@@ -25,7 +25,7 @@ from transformers import (
     BitsAndBytesConfig,
     TrainingArguments,
 )
-from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
+from trl import SFTTrainer
 
 
 MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
@@ -183,13 +183,6 @@ def main():
     if is_main:
         model.print_trainable_parameters()
 
-    # ── Data collator — train only on completions ────────────────────────────
-    response_template = "### SQL:\n"
-    collator = DataCollatorForCompletionOnlyLM(
-        response_template=response_template,
-        tokenizer=tokenizer,
-    )
-
     # ── Resume ──────────────────────────────────────────────────────────────
     resume_from = find_latest_checkpoint(args.checkpoint_dir)
     if resume_from and is_main:
@@ -223,7 +216,6 @@ def main():
         args=training_args,
         train_dataset=dataset,
         tokenizer=tokenizer,
-        data_collator=collator,
         dataset_text_field="text",
         max_seq_length=MAX_SEQ_LEN,
     )

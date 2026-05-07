@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=adapt-sql-finetune
-#SBATCH --account=class_cse543spring2026
+#SBATCH --account=grp_hdavulcu
 #SBATCH --partition=public
-#SBATCH --qos=class
+#SBATCH --qos=public
 #SBATCH --gres=gpu:a100:4
 #SBATCH --mem=160G
 #SBATCH --cpus-per-task=16

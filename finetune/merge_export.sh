@@ -50,7 +50,7 @@ print(f"Using adapter: {adapter_path}")
 tokenizer = AutoTokenizer.from_pretrained(str(adapter_path), trust_remote_code=True)
 
 base_model = AutoModelForCausalLM.from_pretrained(
-    "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "Qwen/Qwen2.5-Coder-7B-Instruct",
     device_map="cpu",
     cache_dir=hf_cache,
     trust_remote_code=True,

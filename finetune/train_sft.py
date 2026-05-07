@@ -28,7 +28,7 @@ from transformers import (
 from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
 
 
-MODEL_ID = "Qwen/Qwen2.5-Coder-32B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 MAX_SEQ_LEN = 2048
 
 

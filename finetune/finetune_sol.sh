@@ -42,15 +42,6 @@ pip install -q \
     "peft>=0.13.0" \
     "bitsandbytes>=0.44.0" \
     "accelerate>=0.34.0" \
-    "datasets>=3.0.0" \
-    "flash-attn>=2.6.0" \
-    --no-build-isolation 2>/dev/null || \
-pip install -q \
-    "transformers>=4.45.0" \
-    "trl>=0.11.0" \
-    "peft>=0.13.0" \
-    "bitsandbytes>=0.44.0" \
-    "accelerate>=0.34.0" \
     "datasets>=3.0.0"
 
 echo "[$(date)] Dependencies ready."

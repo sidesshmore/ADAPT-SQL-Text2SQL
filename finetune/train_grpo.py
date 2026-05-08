@@ -226,7 +226,7 @@ def main():
         cache_dir=args.hf_cache,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
+        attn_implementation="eager",
     )
     model = PeftModel.from_pretrained(base_model, str(sft_final), is_trainable=True)
 

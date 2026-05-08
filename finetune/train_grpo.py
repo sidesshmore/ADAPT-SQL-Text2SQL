@@ -264,7 +264,7 @@ def main():
         model=model,
         args=grpo_config,
         train_dataset=dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         reward_funcs=[make_reward_fn(metadata_list)],
     )
 

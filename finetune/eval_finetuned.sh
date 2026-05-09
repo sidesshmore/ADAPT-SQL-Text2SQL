@@ -29,6 +29,7 @@ OLLAMA_PORT=$((11437 + SLURM_ARRAY_TASK_ID))   # 11437, 11438, 11439, 11440
 echo "[$(date)] eval job array_id=$SLURM_ARRAY_TASK_ID range=$START+$NUM port=$OLLAMA_PORT"
 
 export HOME=/home/$USER
+export PYTHONUNBUFFERED=1
 module load cuda 2>/dev/null
 
 source $PROJECT/venv/bin/activate

@@ -208,7 +208,7 @@ def main():
         gradient_checkpointing=True,
         optim="paged_adamw_8bit",
         dataset_text_field="text",
-        max_seq_length=MAX_SEQ_LEN,
+        max_length=MAX_SEQ_LEN,
     )
 
     # ── Trainer ─────────────────────────────────────────────────────────────

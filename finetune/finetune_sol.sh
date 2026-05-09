@@ -38,7 +38,7 @@ source $PROJECT/venv/bin/activate
 echo "[$(date)] Installing/verifying fine-tune dependencies..."
 pip install -q \
     "transformers>=4.45.0" \
-    "trl>=0.11.0" \
+    "trl>=0.16.0,<0.17.0" \
     "peft>=0.13.0" \
     "bitsandbytes>=0.44.0" \
     "accelerate>=0.34.0" \

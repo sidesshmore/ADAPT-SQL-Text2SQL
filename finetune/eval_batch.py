@@ -13,9 +13,40 @@ Usage:
 import argparse
 import json
 import pickle  # required: must match format used by merge_checkpoints.py and batch_utils.py
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
+
+
+def get_schema_from_sqlite(db_path: str) -> dict:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = [row[0] for row in cursor.fetchall()]
+    schema_dict = {}
+    for table in tables:
+        cursor.execute(f"PRAGMA table_info({table})")
+        schema_dict[table] = [
+            {"column_name": row[1], "data_type": row[2], "is_nullable": "YES" if row[3] == 0 else "NO"}
+            for row in cursor.fetchall()
+        ]
+    conn.close()
+    return schema_dict
+
+
+def get_foreign_keys_from_sqlite(db_path: str) -> list:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = [row[0] for row in cursor.fetchall()]
+    foreign_keys = []
+    for table in tables:
+        cursor.execute(f"PRAGMA foreign_key_list({table})")
+        for row in cursor.fetchall():
+            foreign_keys.append({"from_table": table, "from_column": row[3], "to_table": row[2], "to_column": row[4]})
+    conn.close()
+    return foreign_keys
 
 
 def parse_args():
@@ -58,7 +89,6 @@ def main():
     os.environ["OLLAMA_HOST"] = args.ollama_host
 
     from core.adapt_baseline import ADAPTBaseline
-    from ui.batch_utils import get_schema_from_sqlite, get_foreign_keys_from_sqlite
 
     spider_json = project_dir / "data/spider/dev.json"
     spider_db_dir = project_dir / "data/spider/spider_data/database"

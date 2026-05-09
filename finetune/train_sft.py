@@ -23,9 +23,8 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    TrainingArguments,
 )
-from trl import SFTTrainer
+from trl import SFTConfig, SFTTrainer
 
 
 MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
@@ -189,7 +188,7 @@ def main():
         print(f"[SFT] Resuming from {resume_from}")
 
     # ── TrainingArguments ───────────────────────────────────────────────────
-    training_args = TrainingArguments(
+    training_args = SFTConfig(
         output_dir=str(sft_output),
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
@@ -208,6 +207,8 @@ def main():
         remove_unused_columns=False,
         gradient_checkpointing=True,
         optim="paged_adamw_8bit",
+        dataset_text_field="text",
+        max_seq_length=MAX_SEQ_LEN,
     )
 
     # ── Trainer ─────────────────────────────────────────────────────────────
@@ -216,8 +217,6 @@ def main():
         args=training_args,
         train_dataset=dataset,
         processing_class=tokenizer,
-        dataset_text_field="text",
-        max_seq_length=MAX_SEQ_LEN,
     )
 
     trainer.train(resume_from_checkpoint=resume_from)

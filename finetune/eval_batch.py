@@ -106,8 +106,17 @@ def main():
         vector_store_path=str(project_dir / "vector_store"),
     )
 
+    # Resume from latest checkpoint if one exists
     results = []
     processed = set()
+    checkpoint_dir = Path(args.checkpoint_dir)
+    existing = sorted(checkpoint_dir.glob("*.pkl"), key=lambda p: p.stat().st_mtime) if checkpoint_dir.exists() else []
+    if existing:
+        with open(existing[-1], "rb") as f:
+            saved = pickle.load(f)
+        results = saved["results"]
+        processed = {r["index"] for r in results}
+        print(f"[resume] Loaded {len(results)} results from {existing[-1].name}")
 
     for i in range(args.start, end):
         if i in processed:

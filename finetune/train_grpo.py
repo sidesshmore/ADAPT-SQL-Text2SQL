@@ -172,12 +172,16 @@ def compute_rewards(completions: list[str], prompts: list[str], metadata: list[d
 
 # ── Reward wrapper for GRPOTrainer ───────────────────────────────────────────
 
-def make_reward_fn(metadata_list: list[dict]):
-    """Return a reward_fn compatible with trl GRPOTrainer."""
-    def reward_fn(completions, prompts=None, **kwargs):
-        # GRPOTrainer passes completions as list of strings
-        return compute_rewards(completions, prompts or [""] * len(completions), metadata_list)
-    return reward_fn
+def reward_fn(completions, prompts=None, db_path=None, gold_sql=None, **kwargs):
+    """
+    Reward function for GRPOTrainer.
+    TRL passes extra dataset columns (db_path, gold_sql) as kwargs per batch.
+    """
+    batch_size = len(completions)
+    if db_path is None or gold_sql is None:
+        return [0.0] * batch_size
+    metadata = [{"db_path": db_path[i], "gold_sql": gold_sql[i]} for i in range(batch_size)]
+    return compute_rewards(completions, prompts or [""] * batch_size, metadata)
 
 
 # ── Resume helper ────────────────────────────────────────────────────────────
@@ -232,9 +236,9 @@ def main():
 
     # ── Dataset ──────────────────────────────────────────────────────────────
     records = load_grpo_dataset(args.project_dir)
-    # Keep metadata aligned with dataset rows
-    metadata_list = [{"db_path": r["db_path"], "gold_sql": r["gold_sql"]} for r in records]
-    dataset = Dataset.from_list([{"prompt": r["prompt"]} for r in records])
+    # db_path and gold_sql are kept as dataset columns so TRL forwards
+    # them per-batch to reward_fn via **kwargs — fixes the metadata bug.
+    dataset = Dataset.from_list(records)
 
     # ── GRPO config ──────────────────────────────────────────────────────────
     resume_from = find_latest_checkpoint(grpo_output)
@@ -254,7 +258,7 @@ def main():
         report_to="none",
         max_new_tokens=MAX_NEW_TOKENS,
         temperature=0.7,
-        num_generations=4,          # G in GRPO — group size
+        num_generations=2,
         gradient_checkpointing=True,
         optim="paged_adamw_8bit",
         ddp_find_unused_parameters=False,
@@ -265,7 +269,7 @@ def main():
         args=grpo_config,
         train_dataset=dataset,
         processing_class=tokenizer,
-        reward_funcs=[make_reward_fn(metadata_list)],
+        reward_funcs=[reward_fn],
     )
 
     trainer.train(resume_from_checkpoint=resume_from)

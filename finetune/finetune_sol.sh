@@ -89,7 +89,7 @@ if [ $SFT_EXIT -eq 0 ]; then
         --project_dir $PROJECT \
         --checkpoint_dir $CHECKPOINT_DIR \
         --hf_cache $HF_CACHE \
-        --epochs 1 \
+        --epochs 3 \
         --batch_size 1 \
         --grad_accum 4 \
         --lr 1e-5

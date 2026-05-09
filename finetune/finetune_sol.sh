@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:a100:4
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=0-08:00:00
+#SBATCH --time=0-04:00:00
 #SBATCH --output=/scratch/%u/finetune_%j.log
 #SBATCH --error=/scratch/%u/finetune_%j.err
 

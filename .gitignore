@@ -49,3 +49,14 @@ build/
 
 # Streamlit
 .streamlit/improvement.md
+
+# Large result artifacts
+*.pkl
+batch_results/
+results copy/
+RESULTS/baseline/
+RESULTS/after-fix-1/
+RESULTS/after-fix-2/
+RESULTS/after-fix-3/
+RESULTS/after-fix-4/
+RESULTS/after-fix-5/

@@ -1,0 +1,446 @@
+# ADAPT-SQL Batch Processing Results
+# Generated: 2026-05-05 22:26:23
+# Total Queries: 100
+#
+# ========================================
+# SUMMARY STATISTICS
+# ========================================
+#
+Metric,Value,Percentage
+Total Queries,100,100.0%
+Valid SQL,100,100.0%
+Execution Success,100,100.0%
+Execution Accuracy (EX=1.0),91,91.0%
+Exact-Set-Match (EM=1.0),11,11.0%
+Average Composite Score,0.7500,75.0%
+EASY Queries,14,14.0%
+NON_NESTED_COMPLEX Queries,64,64.0%
+NESTED_COMPLEX Queries,22,22.0%
+Queries Requiring Retry,100,100.0%
+Retry Success Rate,91,91.0%
+#
+# ========================================
+# PER-QUERY RESULTS
+# ========================================
+#
+Index,Database,Question,Complexity,Strategy,Num_Tables,Num_Columns,Generated_SQL,Ground_Truth_SQL,Is_Valid,Validation_Score,Num_Errors,Num_Warnings,Execution_Success,Execution_Time_Sec,Execution_Error,Execution_Accuracy_EX,Exact_Set_Match_EM,Evaluation_Score,Match_SELECT,Match_FROM,Match_WHERE,Match_GROUP_BY,Match_ORDER_BY,Retry_Attempts,Retry_Success,GoT_Winner,GoT_Primary_Rows,GoT_Alt_Rows,MC_Winner_Index,MC_Winner_Reason,MC_N_Candidates,Set_Op_Detected
+0,concert_singer,How many singers do we have?,EASY,SIMPLE_FEW_SHOT,1,7,SELECT count(*) FROM singer;,SELECT count(*) FROM singer,True,1.0,1,0,True,0.003748178482055664,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+1,concert_singer,What is the total number of singers?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,7,SELECT count(*) FROM singer;,SELECT count(*) FROM singer,True,1.0,1,0,True,0.0032095909118652344,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+2,concert_singer,"Show name, country, age for all singers ordered by age from the oldest to the youngest.",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,"SELECT name,
+       country,
+       age
+FROM singer
+ORDER BY age DESC;","SELECT name ,  country ,  age FROM singer ORDER BY age DESC",True,1.0,1,0,True,0.0034961700439453125,,True,False,0.8,True,True,True,True,False,1,True,,,,,,,False
+3,concert_singer,"What are the names, countries, and ages for every singer in descending order of age?",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,"SELECT Name,
+       Country,
+       Age
+FROM singer
+ORDER BY Age DESC;","SELECT name ,  country ,  age FROM singer ORDER BY age DESC",True,1.0,1,0,True,0.003482341766357422,,True,False,0.8,True,True,True,True,False,1,True,,,,,,,False
+4,concert_singer,"What is the average, minimum, and maximum age of all singers from France?",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,16,"SELECT avg(age), min(age), max(age) FROM singer WHERE Country = 'France';","SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  'France'",True,1.0,1,0,True,0.0033702850341796875,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+5,concert_singer,"What is the average, minimum, and maximum age for all French singers?",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,"SELECT avg(age), min(age), max(age) FROM singer WHERE Country = 'France';","SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  'France'",True,1.0,1,0,True,0.003670930862426758,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+6,concert_singer,Show the name and the release year of the song by the youngest singer.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,4,"SELECT Song_Name, Song_release_year FROM singer WHERE Age = (SELECT MIN(Age) FROM singer);","SELECT song_name ,  song_release_year FROM singer ORDER BY age LIMIT 1",True,0.95,1,1,True,0.0032205581665039062,,True,False,0.8,True,True,False,True,False,2,True,,,,,,,False
+7,concert_singer,What are the names and release years for all the songs of the youngest singer?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,7,"SELECT Song_Name, Song_release_year FROM singer WHERE Age = (SELECT MIN(Age) FROM singer);","SELECT song_name ,  song_release_year FROM singer ORDER BY age LIMIT 1",True,0.95,1,1,True,0.002395153045654297,,True,False,0.8,True,True,False,True,False,1,True,,,,,,,False
+8,concert_singer,What are all distinct countries where singers above age 20 are from?,EASY,SIMPLE_FEW_SHOT,1,2,SELECT DISTINCT Country FROM singer WHERE Age > 20;,SELECT DISTINCT country FROM singer WHERE age  >  20,True,0.92,2,0,True,0.0033223628997802734,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+9,concert_singer,What are  the different countries with singers above age 20?,EASY,SIMPLE_FEW_SHOT,1,7,SELECT DISTINCT Country FROM singer WHERE Age > 20;,SELECT DISTINCT country FROM singer WHERE age  >  20,True,0.92,2,0,True,0.0038917064666748047,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+10,concert_singer,Show all countries and the number of singers in each country.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,7,"SELECT Country, COUNT(Singer_ID) FROM singer GROUP BY Country;","SELECT country ,  count(*) FROM singer GROUP BY country",True,1.0,1,0,True,0.0030901432037353516,,True,False,0.8,False,True,True,False,True,1,True,,,,,,,False
+11,concert_singer,How many singers are from each country?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,7,"SELECT Country, COUNT(Singer_ID) FROM singer GROUP BY Country;","SELECT country ,  count(*) FROM singer GROUP BY country",True,1.0,1,0,True,0.003013134002685547,,True,False,0.8,False,True,True,False,True,1,True,,,,,,,False
+12,concert_singer,List all song names by singers above the average age.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,SELECT Song_Name FROM singer WHERE Age > (SELECT AVG(Age) FROM singer);,SELECT song_name FROM singer WHERE age  >  (SELECT avg(age) FROM singer),True,0.95,1,1,True,0.0032737255096435547,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+13,concert_singer,What are all the song names by singers who are older than average?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,SELECT Song_Name FROM singer WHERE Age > (SELECT AVG(Age) FROM singer);,SELECT song_name FROM singer WHERE age  >  (SELECT avg(age) FROM singer),True,0.95,1,1,True,0.0029375553131103516,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+14,concert_singer,Show location and name for all stadiums with a capacity between 5000 and 10000.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,"SELECT LOCATION,
+       name
+FROM stadium
+WHERE capacity BETWEEN 5000 AND 10000;","SELECT LOCATION ,  name FROM stadium WHERE capacity BETWEEN 5000 AND 10000",True,1.0,1,0,True,0.0029532909393310547,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+15,concert_singer,What are the locations and names of all stations with capacity between 5000 and 10000?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,"SELECT LOCATION,
+       Name
+FROM stadium
+WHERE Capacity BETWEEN 5000 AND 10000;","SELECT LOCATION ,  name FROM stadium WHERE capacity BETWEEN 5000 AND 10000",True,1.0,1,0,True,0.003684520721435547,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+16,concert_singer,What is the maximum capacity and the average of all stadiums ?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,7,"SELECT max(capacity), avg(capacity) FROM stadium;","select max(capacity), average from stadium",True,1.0,1,0,True,0.0035610198974609375,,False,False,0.0,False,True,True,True,True,4,False,,,,,,,False
+17,concert_singer,What is the average and maximum capacities for all stadiums ?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,"SELECT avg(capacity), max(capacity) FROM stadium;","select avg(capacity) ,  max(capacity) from stadium",True,1.0,1,0,True,0.003964662551879883,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+18,concert_singer,What is the name and capacity for the stadium with highest average attendance?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,7,"SELECT name,
+       capacity
+FROM stadium
+ORDER BY average DESC
+LIMIT 1;","SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1",True,1.0,1,0,True,0.0030794143676757812,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+19,concert_singer,What is the name and capacity for the stadium with the highest average attendance?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,"SELECT stadium.Name,
+       stadium.Capacity
+FROM concert
+JOIN stadium ON concert.Stadium_ID = stadium.Stadium_ID
+GROUP BY stadium.Name,
+         stadium.Capacity
+ORDER BY AVG(stadium.Average) DESC
+LIMIT 1;","SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1",True,0.5299999999999999,4,1,True,0.0029511451721191406,,True,False,0.8,False,False,True,False,False,1,True,,,,,,,False
+20,concert_singer,How many concerts are there in year 2014 or 2015?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,21,"SELECT COUNT(concert_ID)
+FROM concert
+WHERE Year = '2014'
+  OR Year = '2015';",SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015,True,1.0,1,0,True,0.0029082298278808594,,True,False,0.8,False,True,False,True,True,1,True,,,,,,,False
+21,concert_singer,How many concerts occurred in 2014 or 2015?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,10,"SELECT count(YEAR) FROM concert WHERE YEAR IN ('2014', '2015');",SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015,True,1.0,1,0,True,0.0025055408477783203,,True,False,0.8,False,True,False,True,True,1,True,,,,,,,False
+22,concert_singer,Show the stadium name and the number of concerts in each stadium.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,2,12,"SELECT stadium.Name,
+       COUNT(concert.concert_ID)
+FROM concert
+JOIN stadium ON concert.Stadium_ID = stadium.Stadium_ID
+GROUP BY stadium.Name;","SELECT T2.name ,  count(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T1.stadium_id",True,0.83,2,1,True,0.0026018619537353516,,True,False,0.8,False,False,True,False,True,1,True,,,,,,,False
+23,concert_singer,"For each stadium, how many concerts play there?",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,13,"SELECT stadium.Name,
+       COUNT(concert.concert_ID)
+FROM concert
+JOIN stadium ON concert.Stadium_ID = stadium.Stadium_ID
+GROUP BY stadium.Name;","SELECT T2.name ,  count(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T1.stadium_id",True,0.83,2,1,True,0.0034558773040771484,,True,False,0.8,False,False,True,False,True,2,True,,,,,,,False
+24,concert_singer,Show the stadium name and capacity with most number of concerts in year 2014 or after.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,2,12,"SELECT stadium.Name,
+       stadium.Capacity
+FROM concert
+JOIN stadium ON concert.Stadium_ID = stadium.Stadium_ID
+WHERE concert.Year >= 2014
+GROUP BY stadium.Stadium_ID
+ORDER BY count(concert.concert_ID) DESC
+LIMIT 1;","SELECT T2.name ,  T2.capacity FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  >=  2014 GROUP BY T2.stadium_id ORDER BY count(*) DESC LIMIT 1",True,0.85,2,0,True,0.0032629966735839844,,True,False,0.8,False,False,False,False,False,1,True,,,,,,,False
+25,concert_singer,What is the name and capacity of the stadium with the most concerts after 2013 ?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,2,12,"SELECT stadium.Name,
+       stadium.Capacity
+FROM concert
+JOIN stadium ON concert.Stadium_ID = stadium.Stadium_ID
+WHERE concert.Year > 2013
+GROUP BY stadium.Stadium_ID
+ORDER BY count(concert.concert_ID) DESC
+LIMIT 1;","select t2.name ,  t2.capacity from concert as t1 join stadium as t2 on t1.stadium_id  =  t2.stadium_id where t1.year  >  2013 group by t2.stadium_id order by count(*) desc limit 1",True,0.85,2,0,True,0.0033960342407226562,,True,False,0.8,False,False,False,False,False,1,True,,,,,,,False
+26,concert_singer,Which year has most number of concerts?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,5,"SELECT concert.Year
+FROM concert
+GROUP BY concert.Year
+ORDER BY COUNT(concert.concert_ID) DESC
+LIMIT 1;",SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1,True,1.0,1,0,True,0.0027756690979003906,,True,False,0.8,False,True,True,False,False,3,True,,,,,,,False
+27,concert_singer,What is the year that had the most concerts?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,17,SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1;,SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1,True,1.0,1,0,True,0.003106832504272461,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+28,concert_singer,Show the stadium names without any concert.,EASY,SIMPLE_FEW_SHOT,2,12,SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert);,SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert),True,0.9,2,1,True,0.00315093994140625,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,True
+29,concert_singer,What are the names of the stadiums without any concerts?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,12,"SELECT stadium.Name
+FROM stadium
+LEFT JOIN concert ON stadium.Stadium_ID = concert.Stadium_ID
+WHERE concert.Stadium_ID IS NULL;",SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert),True,0.85,2,0,True,0.0028951168060302734,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,True
+30,concert_singer,Show countries where a singer above age 40 and a singer below 30 are from.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,SELECT Country FROM singer WHERE Age > 40 INTERSECT SELECT Country FROM singer WHERE Age < 30;,SELECT country FROM singer WHERE age  >  40 INTERSECT SELECT country FROM singer WHERE age  <  30,True,0.92,2,0,True,0.002721071243286133,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+31,concert_singer,Show names for all stadiums except for stadiums having a concert in year 2014.,NESTED_COMPLEX,DECOMPOSED_GENERATION,2,9,SELECT Name FROM stadium WHERE Stadium_ID NOT IN (SELECT Stadium_ID FROM concert WHERE YEAR = '2014');,SELECT name FROM stadium EXCEPT SELECT T2.name FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  =  2014,True,1.0,1,0,True,0.003637552261352539,,True,False,0.8,True,False,False,True,True,1,True,,,,,,,True
+32,concert_singer,What are the names of all stadiums that did not have a concert in 2014?,NESTED_COMPLEX,DECOMPOSED_GENERATION,2,12,SELECT name FROM stadium WHERE Stadium_ID NOT IN (SELECT Stadium_ID FROM concert WHERE YEAR = '2014');,SELECT name FROM stadium EXCEPT SELECT T2.name FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  =  2014,True,1.0,1,0,True,0.003269672393798828,,True,False,0.8,True,False,False,True,True,1,True,,,,,,,False
+33,concert_singer,Show the name and theme for all concerts and the number of singers in each concert.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,2,7,"SELECT concert.concert_Name,
+       concert.Theme,
+       COUNT(singer_in_concert.Singer_ID)
+FROM concert
+JOIN singer_in_concert ON concert.concert_ID = singer_in_concert.concert_ID
+GROUP BY concert.concert_ID, concert.concert_Name, concert.Theme;","SELECT T2.concert_name ,  T2.theme ,  count(*) FROM singer_in_concert AS T1 JOIN concert AS T2 ON T1.concert_id  =  T2.concert_id GROUP BY T2.concert_id",True,0.83,2,1,True,0.0028438568115234375,,True,False,0.8,False,False,True,False,True,1,True,,,,,,,False
+34,concert_singer,"What are the names , themes , and number of singers for every concert ?",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,12,"SELECT concert.concert_Name,
+       concert.Theme,
+       COUNT(singer_in_concert.Singer_ID)
+FROM concert
+JOIN singer_in_concert ON concert.concert_ID = singer_in_concert.concert_ID
+GROUP BY concert.concert_Name,
+         concert.Theme;","select t2.concert_name ,  t2.theme ,  count(*) from singer_in_concert as t1 join concert as t2 on t1.concert_id  =  t2.concert_id group by t2.concert_id",True,0.83,2,1,True,0.021869182586669922,,True,False,0.8,False,False,True,False,True,1,True,,,,,,,False
+35,concert_singer,List singer names and number of concerts for each singer.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,16,"SELECT singer.Name,
+       COUNT(singer_in_concert.concert_ID)
+FROM singer
+JOIN singer_in_concert ON singer.Singer_ID = singer_in_concert.Singer_ID
+GROUP BY singer.Name;","SELECT T2.name ,  count(*) FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id GROUP BY T2.singer_id",True,0.83,2,1,True,0.0030202865600585938,,True,False,0.8,False,False,True,False,True,1,True,,,,,,,False
+36,concert_singer,What are the names of the singers and number of concerts for each person?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,16,"SELECT singer.Name,
+       COUNT(singer_in_concert.concert_ID)
+FROM singer
+JOIN singer_in_concert ON singer.Singer_ID = singer_in_concert.Singer_ID
+GROUP BY singer.Name;","SELECT T2.name ,  count(*) FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id GROUP BY T2.singer_id",True,0.83,2,1,True,0.0031805038452148438,,True,False,0.8,False,False,True,False,True,1,True,,,,,,,False
+37,concert_singer,List all singer names in concerts in year 2014.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,6,"SELECT singer.Name
+FROM concert
+JOIN singer_in_concert ON concert.concert_ID = singer_in_concert.concert_ID
+JOIN singer ON singer_in_concert.Singer_ID = singer.Singer_ID
+WHERE concert.Year = '2014';",SELECT T2.name FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T1.concert_id  =  T3.concert_id WHERE T3.year  =  2014,True,0.7,3,0,True,0.0031833648681640625,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+38,concert_singer,What are the names of the singers who performed in a concert in 2014?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,13,"SELECT singer.Name
+FROM concert
+JOIN singer_in_concert ON concert.concert_ID = singer_in_concert.concert_ID
+JOIN singer ON singer_in_concert.Singer_ID = singer.Singer_ID
+WHERE concert.Year = '2014';",SELECT T2.name FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T1.concert_id  =  T3.concert_id WHERE T3.year  =  2014,True,0.7,3,0,True,0.0033037662506103516,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+39,concert_singer,what is the name and nation of the singer who have a song having 'Hey' in its name?,NESTED_COMPLEX,DECOMPOSED_GENERATION,1,3,"SELECT Name, Country FROM singer WHERE Song_Name LIKE '%Hey%';","SELECT name ,  country FROM singer WHERE song_name LIKE '%Hey%'",True,0.92,2,0,True,0.0036003589630126953,,True,False,0.8,True,True,False,True,True,2,True,,,,,,,False
+40,concert_singer,What is the name and country of origin of every singer who has a song with the word 'Hey' in its title?,NESTED_COMPLEX,DECOMPOSED_GENERATION,4,21,"SELECT s.Name,
+       s.Country
+FROM singer AS s
+JOIN
+  (SELECT Singer_ID
+   FROM singer
+   WHERE Song_Name LIKE ""%Hey%""
+   GROUP BY Singer_ID) AS subquery ON s.Singer_ID = subquery.Singer_ID;","SELECT name ,  country FROM singer WHERE song_name LIKE '%Hey%'",True,1.0,1,0,True,0.0034933090209960938,,True,False,0.8,False,False,False,False,True,1,True,,,,,,,False
+41,concert_singer,Find the name and location of the stadiums which some concerts happened in the years of both 2014 and 2015.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,2,8,"SELECT t1.Name,
+       t1.Location
+FROM stadium AS t1
+JOIN concert AS t2 ON t1.Stadium_ID = t2.Stadium_ID
+WHERE t2.Year = 2014
+INTERSECT
+SELECT t1.Name,
+       t1.Location
+FROM stadium AS t1
+JOIN concert AS t2 ON t1.Stadium_ID = t2.Stadium_ID
+WHERE t2.Year = 2015;","SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2014 INTERSECT SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2015",True,0.92,2,0,True,0.004452705383300781,,True,False,0.8,False,True,False,True,True,1,True,,,,,,,True
+42,concert_singer,What are the names and locations of the stadiums that had concerts that occurred in both 2014 and 2015?,NESTED_COMPLEX,DECOMPOSED_GENERATION,2,8,"SELECT stadium.Name,
+       stadium.Location
+FROM stadium
+WHERE stadium.Stadium_ID IN (
+    SELECT DISTINCT concert.Stadium_ID
+    FROM concert
+    WHERE concert.Year = '2014'
+    INTERSECT
+    SELECT DISTINCT concert.Stadium_ID
+    FROM concert
+    WHERE concert.Year = '2015'
+);","SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2014 INTERSECT SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2015",True,0.31999999999999995,4,0,True,0.003356456756591797,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,True
+43,concert_singer,Find the number of concerts happened in the stadium with the highest capacity .,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,2,12,"SELECT count(concert.concert_ID)
+FROM concert
+JOIN stadium ON concert.Stadium_ID = stadium.Stadium_ID
+WHERE stadium.Capacity =
+    (SELECT max(stadium.Capacity)
+     FROM stadium);",select count(*) from concert where stadium_id = (select stadium_id from stadium order by capacity desc limit 1),True,0.85,2,0,True,0.003632783889770508,,True,False,0.8,False,False,False,True,False,1,True,,,,,,,False
+44,concert_singer,What are the number of concerts that occurred in the stadium with the largest capacity ?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,13,"SELECT COUNT(concert.concert_ID)
+FROM concert
+JOIN stadium ON concert.Stadium_ID = stadium.Stadium_ID
+WHERE stadium.Stadium_ID =
+    (SELECT Stadium_ID
+     FROM stadium
+     ORDER BY Capacity DESC
+     LIMIT 1);",select count(*) from concert where stadium_id = (select stadium_id from stadium order by capacity desc limit 1),True,0.85,2,0,True,0.003182649612426758,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+45,pets_1,Find the number of pets whose weight is heavier than 10.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,SELECT count(PetID) FROM Pets WHERE weight > 10;,SELECT count(*) FROM pets WHERE weight  >  10,True,1.0,1,0,True,0.003477811813354492,,True,False,0.8,False,True,False,True,True,1,True,,,,,,,False
+46,pets_1,How many pets have a greater weight than 10?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,SELECT count(PetID) FROM Pets WHERE weight > 10;,SELECT count(*) FROM pets WHERE weight  >  10,True,1.0,1,0,True,0.003409147262573242,,True,False,0.8,False,True,False,True,True,1,True,,,,,,,False
+47,pets_1,Find the weight of the youngest dog.,EASY,SIMPLE_FEW_SHOT,1,4,SELECT weight FROM Pets WHERE PetType = 'dog' ORDER BY pet_age ASC LIMIT 1;,SELECT weight FROM pets ORDER BY pet_age LIMIT 1,True,1.0,1,0,True,0.0036797523498535156,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+48,pets_1,How much does the youngest dog weigh?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,SELECT weight FROM Pets WHERE PetType = 'dog' ORDER BY pet_age ASC LIMIT 1;,SELECT weight FROM pets ORDER BY pet_age LIMIT 1,True,1.0,1,0,True,0.0029129981994628906,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+49,pets_1,Find the maximum weight for each type of pet. List the maximum weight and pet type.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,4,"SELECT max(weight), PetType FROM Pets GROUP BY PetType;","SELECT max(weight) ,  petType FROM pets GROUP BY petType",True,1.0,1,0,True,0.003123760223388672,,True,False,0.8,True,True,True,False,True,1,True,,,,,,,False
+50,pets_1,List the maximum weight and type for each type of pet.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,4,"SELECT max(weight), PetType FROM Pets GROUP BY PetType;","SELECT max(weight) ,  petType FROM pets GROUP BY petType",True,1.0,1,0,True,0.0030951499938964844,,True,False,0.8,True,True,True,False,True,1,True,,,,,,,False
+51,pets_1,Find number of pets owned by students who are older than 20.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,"SELECT count(Has_Pet.petid)
+FROM Has_Pet
+JOIN Student ON Has_Pet.stuid = Student.stuid
+WHERE Student.age > 20;",SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.age  >  20,True,0.8400000000000001,3,0,True,0.004788875579833984,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+52,pets_1,How many pets are owned by students that have an age greater than 20?,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,8,"SELECT COUNT(P.PetID)
+FROM Pets P
+JOIN Has_Pet HP ON P.PetID = HP.PetID
+WHERE HP.StuID IN
+    (SELECT S.StuID
+     FROM Student S
+     WHERE S.Age > 20);",SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.age  >  20,True,1.0,1,0,True,0.003757953643798828,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+53,pets_1,Find the number of dog pets that are raised by female students (with sex F).,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,6,"SELECT count(Pets.PetID)
+FROM Has_Pet
+JOIN Pets ON Has_Pet.PetID = Pets.PetID
+JOIN Student ON Has_Pet.StuID = Student.StuID
+WHERE Student.Sex = 'F'
+  AND Pets.PetType = 'dog';",SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T1.sex  =  'F' AND T3.pettype  =  'dog',True,0.7600000000000001,4,0,True,0.003333568572998047,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+54,pets_1,How many dog pets are raised by female students?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,6,"SELECT count(Has_Pet.petid)
+FROM Has_Pet
+JOIN Pets ON Has_Pet.petid = Pets.petid
+JOIN Student ON Has_Pet.stuid = Student.stuid
+WHERE Pets.pettype = 'dog'
+  AND Student.sex = 'F';",SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T1.sex  =  'F' AND T3.pettype  =  'dog',True,0.7600000000000001,4,0,True,0.002918243408203125,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+55,pets_1,Find the number of distinct type of pets.,EASY,SIMPLE_FEW_SHOT,1,4,SELECT count(DISTINCT PetType) FROM Pets;,SELECT count(DISTINCT pettype) FROM pets,True,1.0,1,0,True,0.002707958221435547,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+56,pets_1,How many different types of pet are there?,EASY,SIMPLE_FEW_SHOT,1,4,SELECT count(DISTINCT PetType) FROM Pets;,SELECT count(DISTINCT pettype) FROM pets,True,0.92,2,0,True,0.0033173561096191406,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+57,pets_1,Find the first name of students who have cat or dog pet.,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,6,"SELECT T1.fname
+FROM Student AS T1
+JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID
+JOIN Pets AS T3 ON T2.PetID = T3.PetID
+WHERE T3.PetType = 'cat'
+   OR T3.PetType = 'dog';",SELECT DISTINCT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' OR T3.pettype  =  'dog',True,0.7600000000000001,4,0,True,0.0033881664276123047,,False,False,0.0,False,True,False,True,True,4,False,,,,,,,False
+58,pets_1,What are the first names of every student who has a cat or dog as a pet?,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,14,SELECT DISTINCT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID JOIN Pets AS T3 ON T2.PetID = T3.PetID WHERE T3.PetType = 'cat' OR T3.PetType = 'dog';,SELECT DISTINCT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' OR T3.pettype  =  'dog',True,1.0,1,0,True,0.0033342838287353516,,True,False,0.8,True,True,False,True,True,3,True,,,,,,,False
+59,pets_1,Find the first name of students who have both cat and dog pets .,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,6,"SELECT T1.Fname
+FROM Student AS T1
+WHERE T1.StuID IN (
+    SELECT StuID
+    FROM Has_Pet AS T2
+    JOIN Pets AS T3 ON T2.PetID = T3.PetID
+    WHERE T3.PetType = 'Cat'
+    INTERSECT
+    SELECT StuID
+    FROM Has_Pet AS T2
+    JOIN Pets AS T3 ON T2.PetID = T3.PetID
+    WHERE T3.PetType = 'Dog'
+);",select t1.fname from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid join pets as t3 on t3.petid  =  t2.petid where t3.pettype  =  'cat' intersect select t1.fname from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid join pets as t3 on t3.petid  =  t2.petid where t3.pettype  =  'dog',True,1.0,1,0,True,0.0025289058685302734,,True,False,0.8,True,False,False,True,True,1,True,,,,,,,True
+60,pets_1,What are the students' first names who have both cats and dogs as pets?,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,14,"SELECT T1.fname
+FROM Student AS T1
+WHERE T1.StuID IN
+    (SELECT StuID
+     FROM Has_Pet
+     JOIN Pets ON Has_Pet.PetID = Pets.PetID
+     WHERE PetType = 'cat' INTERSECT SELECT StuID
+     FROM Has_Pet
+     JOIN Pets ON Has_Pet.PetID = Pets.PetID
+     WHERE PetType = 'dog');",SELECT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' INTERSECT SELECT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog',True,0.92,2,0,True,0.002955913543701172,,True,False,0.8,True,False,False,True,True,1,True,,,,,,,True
+61,pets_1,Find the major and age of students who do not have a cat pet.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,7,"SELECT Student.Major,
+       Student.Age
+FROM Student
+EXCEPT
+SELECT Student.Major,
+       Student.Age
+FROM Student
+JOIN Has_Pet ON Student.StuID = Has_Pet.StuID
+JOIN Pets ON Has_Pet.PetID = Pets.PetID
+WHERE Pets.PetType = 'cat';","SELECT major ,  age FROM student WHERE stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",True,0.77,3,0,True,0.0032219886779785156,,False,False,0.0,False,False,False,True,True,4,False,,,,,,,True
+62,pets_1,"What major is every student who does not own a cat as a pet, and also how old are they?",NESTED_COMPLEX,DECOMPOSED_GENERATION,3,7,"SELECT Major,
+       Age
+FROM Student
+WHERE StuID NOT IN
+    (SELECT T1.StuID
+     FROM Has_Pet AS T1
+     JOIN Pets AS T2 ON T1.PetID = T2.PetID
+     WHERE T2.PetType = 'cat');","SELECT major ,  age FROM student WHERE stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",True,1.0,1,0,True,0.0026290416717529297,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+63,pets_1,Find the id of students who do not have a cat pet.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,5,"SELECT Student.StuID
+FROM Student
+EXCEPT
+SELECT Has_Pet.StuID
+FROM Has_Pet
+INNER JOIN Pets ON Has_Pet.PetID = Pets.PetID
+WHERE Pets.PetType = 'cat';",SELECT stuid FROM student EXCEPT SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat',True,0.92,2,0,True,0.005921125411987305,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,True
+64,pets_1,What are the ids of the students who do not own cats as pets?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,"SELECT Student.StuID
+FROM Student
+EXCEPT
+SELECT Student.StuID
+FROM Student
+JOIN Has_Pet ON Student.StuID = Has_Pet.StuID
+JOIN Pets ON Has_Pet.PetID = Pets.PetID
+WHERE Pets.PetType = 'cat';",SELECT stuid FROM student EXCEPT SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat',True,0.77,3,0,True,0.002819061279296875,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+65,pets_1,Find the first name and age of students who have a dog but do not have a cat as a pet.,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,7,"SELECT Student.Fname,
+       Student.Age
+FROM Student
+JOIN Has_Pet HP ON Student.StuID = HP.StuID
+JOIN Pets P ON HP.PetID = P.PetID
+WHERE P.PetType = 'dog'
+  AND Student.StuID NOT IN (
+    SELECT StuID
+    FROM Has_Pet
+    JOIN Pets ON Has_Pet.PetID = Pets.PetID
+    WHERE PetType = 'cat'
+);","SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog' AND T1.stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",True,1.0,1,0,True,0.003437519073486328,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,True
+66,pets_1,What is the first name of every student who has a dog but does not have a cat?,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,6,"SELECT Student.Fname
+FROM Student
+JOIN Has_Pet ON Student.StuID = Has_Pet.StuID
+JOIN Pets ON Has_Pet.PetID = Pets.PetID
+WHERE Pets.PetType = 'dog'
+  AND Student.StuID NOT IN (
+    SELECT HP.StuID
+    FROM Has_Pet AS HP
+    JOIN Pets AS P ON HP.PetID = P.PetID
+    WHERE P.PetType = 'cat'
+  );","SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog' AND T1.stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",True,0.85,2,0,True,0.003918647766113281,,False,False,0.0,False,False,False,True,True,4,False,,,,,,,True
+67,pets_1,Find the type and weight of the youngest pet.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,13,"SELECT PetType,
+       weight
+FROM Pets
+WHERE pet_age =
+    (SELECT MIN(pet_age)
+     FROM Pets);","SELECT pettype ,  weight FROM pets ORDER BY pet_age LIMIT 1",True,0.95,1,1,True,0.0027570724487304688,,True,False,0.8,True,True,False,True,False,1,True,,,,,,,False
+68,pets_1,"What type of pet is the youngest animal, and how much does it weigh?",EASY,SIMPLE_FEW_SHOT,1,3,"SELECT PetType, weight FROM Pets ORDER BY pet_age ASC LIMIT 1;","SELECT pettype ,  weight FROM pets ORDER BY pet_age LIMIT 1",True,1.0,1,0,True,0.0027844905853271484,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+69,pets_1,Find the id and weight of all pets whose age is older than 1.,EASY,SIMPLE_FEW_SHOT,1,4,"SELECT PetID, weight FROM Pets WHERE pet_age > 1;","SELECT petid ,  weight FROM pets WHERE pet_age  >  1",True,1.0,1,0,True,0.0026350021362304688,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+70,pets_1,What is the id and weight of every pet who is older than 1?,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,14,"SELECT PetID, weight FROM Pets WHERE pet_age > 1;","SELECT petid ,  weight FROM pets WHERE pet_age  >  1",True,1.0,1,0,True,0.003027200698852539,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+71,pets_1,Find the average and maximum age for each type of pet.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,"SELECT avg(pet_age),
+       max(pet_age),
+       PetType
+FROM Pets
+GROUP BY PetType;","SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM pets GROUP BY pettype",True,1.0,1,0,True,0.002953767776489258,,True,False,0.8,True,True,True,False,True,1,True,,,,,,,False
+72,pets_1,What is the average and maximum age for each pet type?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,4,"SELECT avg(pet_age), max(pet_age), PetType FROM Pets GROUP BY PetType;","SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM pets GROUP BY pettype",True,1.0,1,0,True,0.003101825714111328,,True,False,0.8,True,True,True,False,True,1,True,,,,,,,False
+73,pets_1,Find the average weight for each pet type.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,4,"SELECT avg(weight), PetType FROM Pets GROUP BY PetType;","SELECT avg(weight) ,  pettype FROM pets GROUP BY pettype",True,1.0,1,0,True,0.0027112960815429688,,True,False,0.8,True,True,True,False,True,1,True,,,,,,,False
+74,pets_1,What is the average weight for each type of pet?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,1,4,"SELECT avg(weight), PetType FROM Pets GROUP BY PetType;","SELECT avg(weight) ,  pettype FROM pets GROUP BY pettype",True,1.0,1,0,True,0.0029883384704589844,,True,False,0.8,True,True,True,False,True,1,True,,,,,,,False
+75,pets_1,Find the first name and age of students who have a pet.,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,8,"SELECT Fname,
+       Age
+FROM Student
+WHERE StuID IN
+    (SELECT StuID
+     FROM Has_Pet);","SELECT DISTINCT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid",True,1.0,1,0,True,0.004100799560546875,,True,False,0.8,False,False,False,True,True,2,True,,,,,,,False
+76,pets_1,What are the different first names and ages of the students who do have pets?,EASY,SIMPLE_FEW_SHOT,2,10,"SELECT DISTINCT T1.fname, T1.age FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID;","SELECT DISTINCT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid",True,0.8200000000000001,3,1,True,0.0030319690704345703,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+77,pets_1,Find the id of the pet owned by student whose last name is ‘Smith’.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,"SELECT Has_Pet.PetID
+FROM Has_Pet
+JOIN Student ON Has_Pet.StuID = Student.StuID
+WHERE Student.LName = 'Smith';",SELECT T2.petid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.Lname  =  'Smith',True,1.0,1,0,True,0.0031960010528564453,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+78,pets_1,What is the id of the pet owned by the student whose last name is 'Smith'?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,"SELECT Has_Pet.PetID
+FROM Has_Pet
+JOIN Student ON Has_Pet.StuID = Student.StuID
+WHERE Student.LName = 'Smith';",SELECT T2.petid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.Lname  =  'Smith',True,1.0,1,0,True,0.002821207046508789,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+79,pets_1,Find the number of pets for each student who has any pet and student id.,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,7,"SELECT Student.StuID,
+       COUNT(Has_Pet.PetID)
+FROM Student
+JOIN Has_Pet ON Student.StuID = Has_Pet.StuID
+GROUP BY Student.StuID;","SELECT count(*) ,  T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid",True,0.83,2,1,True,0.0028824806213378906,,False,False,0.0,False,False,True,False,True,4,False,,,,,,,False
+80,pets_1,"For students who have pets , how many pets does each student have ? list their ids instead of names .",NESTED_COMPLEX,DECOMPOSED_GENERATION,2,3,"SELECT COUNT(*), T1.StuID FROM Has_Pet AS T1 GROUP BY T1.StuID;","select count(*) ,  t1.stuid from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid group by t1.stuid",True,0.98,1,1,True,0.0030829906463623047,,True,False,0.8,True,False,True,False,True,1,True,,,,,,,False
+81,pets_1,Find the first name and gender of student who have more than one pet.,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,9,"SELECT Fname,
+       Sex
+FROM Student
+WHERE StuID IN
+    (SELECT StuID
+     FROM Has_Pet
+     GROUP BY StuID
+     HAVING COUNT(PetID) > 1);","SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid HAVING count(*)  >  1",True,1.0,1,0,True,0.0029065608978271484,,True,False,0.8,False,False,False,False,True,1,True,,,,,,,False
+82,pets_1,What is the first name and gender of the all the students who have more than one pet?,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,9,"SELECT Student.Fname,
+       Student.Sex
+FROM Student
+JOIN Has_Pet ON Student.StuID = Has_Pet.StuID
+GROUP BY Student.StuID
+HAVING COUNT(*) > 1;","SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid HAVING count(*)  >  1",True,1.0,1,0,True,0.003411531448364258,,True,False,0.8,False,False,True,False,True,1,True,,,,,,,False
+83,pets_1,Find the last name of the student who has a cat that is age 3.,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,14,"SELECT T1.LName
+FROM Student AS T1
+JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID
+JOIN Pets AS T3 ON T2.PetID = T3.PetID
+WHERE T3.PetType = 'cat'
+  AND T3.pet_age = 3;",SELECT T1.lname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pet_age  =  3 AND T3.pettype  =  'cat',True,0.98,1,1,True,0.0027701854705810547,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+84,pets_1,What is the last name of the student who has a cat that is 3 years old?,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,14,"SELECT Student.LName
+FROM Student
+WHERE EXISTS
+    (SELECT 1
+     FROM Has_Pet
+     JOIN Pets ON Has_Pet.PetID = Pets.PetID
+     WHERE Has_Pet.StuID = Student.StuID
+       AND Pets.PetType = ""cat""
+       AND Pets.pet_age = 3);",SELECT T1.lname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pet_age  =  3 AND T3.pettype  =  'cat',True,0.98,1,1,True,0.0032782554626464844,,True,False,0.8,False,False,False,True,True,1,True,,,,,,,False
+85,pets_1,Find the average age of students who do not have any pet .,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,14,"SELECT AVG(Student.Age)
+FROM Student
+WHERE Student.StuID NOT IN
+    (SELECT Has_Pet.StuID
+     FROM Has_Pet);",select avg(age) from student where stuid not in (select stuid from has_pet),True,1.0,1,0,True,0.0037450790405273438,,True,False,0.8,False,True,False,True,True,1,True,,,,,,,True
+86,pets_1,What is the average age for all students who do not own any pets ?,NESTED_COMPLEX,DECOMPOSED_GENERATION,3,14,SELECT AVG(Age) FROM Student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet);,select avg(age) from student where stuid not in (select stuid from has_pet),True,1.0,1,0,True,0.003164052963256836,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+87,car_1,How many continents are there?,EASY,SIMPLE_FEW_SHOT,1,2,SELECT count(*) FROM continents;,SELECT count(*) FROM CONTINENTS;,True,1.0,1,0,True,0.0027980804443359375,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+88,car_1,What is the number of continents?,EASY,SIMPLE_FEW_SHOT,1,2,SELECT count(*) FROM continents;,SELECT count(*) FROM CONTINENTS;,True,1.0,1,0,True,0.002709627151489258,,True,True,1.0,True,True,True,True,True,1,True,,,,,,,False
+89,car_1,"How many countries does each continent have? List the continent id, continent name and the number of countries.",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,6,23,"SELECT continents.ContId,
+       continents.Continent,
+       COUNT(countries.CountryId)
+FROM continents
+INNER JOIN countries ON continents.ContId = countries.Continent
+GROUP BY continents.ContId,
+         continents.Continent;","SELECT T1.ContId ,  T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId;",True,0.83,2,1,True,0.0033996105194091797,,True,False,0.8,False,False,True,False,True,1,True,,,,,,,False
+90,car_1,"For each continent, list its id, name, and how many countries it has?",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,2,5,"SELECT continents.ContId,
+       continents.Continent,
+       COUNT(countries.CountryId)
+FROM continents
+JOIN countries ON continents.ContId = countries.Continent
+GROUP BY continents.ContId,
+         continents.Continent;","SELECT T1.ContId ,  T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId;",True,0.83,2,1,True,0.0028426647186279297,,True,False,0.8,False,False,True,False,True,1,True,,,,,,,False
+91,car_1,How many countries are listed?,EASY,SIMPLE_FEW_SHOT,1,3,SELECT count(countries.CountryId) FROM countries;,SELECT count(*) FROM COUNTRIES;,True,1.0,1,0,True,0.0030291080474853516,,True,False,0.8,False,True,True,True,True,1,True,,,,,,,False
+92,car_1,How many countries exist?,EASY,SIMPLE_FEW_SHOT,1,3,SELECT count(countries.CountryId) FROM countries;,SELECT count(*) FROM COUNTRIES;,True,1.0,1,0,True,0.0027008056640625,,True,False,0.8,False,True,True,True,True,1,True,,,,,,,False
+93,car_1,"How many models does each car maker produce? List maker full name, id and the number.",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,6,23,"SELECT car_makers.FullName,
+       car_makers.Id,
+       COUNT(model_list.Model)
+FROM car_makers
+JOIN model_list ON car_makers.Id = model_list.Maker
+GROUP BY car_makers.Id,
+         car_makers.FullName;","SELECT T1.FullName ,  T1.Id ,  count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id;",True,0.83,2,1,True,0.0033202171325683594,,True,False,0.8,False,False,True,False,True,2,True,,,,,,,False
+94,car_1,"What is the full name of each car maker, along with its id and how many models it produces?",NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,2,5,"SELECT car_makers.Id,
+       car_makers.FullName,
+       COUNT(model_list.Model)
+FROM car_makers
+JOIN model_list ON car_makers.Id = model_list.Maker
+GROUP BY car_makers.Id,
+         car_makers.FullName;","SELECT T1.FullName ,  T1.Id ,  count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id;",True,0.27000000000000024,9,1,True,0.002978086471557617,,False,False,0.0,False,False,True,False,True,4,False,,,,,,,False
+95,car_1,Which model of the car has the minimum horsepower?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,9,"SELECT model_list.Model
+FROM cars_data
+JOIN car_names ON cars_data.Id = car_names.MakeId
+JOIN model_list ON car_names.Model = model_list.Model
+ORDER BY CAST(cars_data.Horsepower AS INTEGER) ASC
+LIMIT 1;",SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.horsepower ASC LIMIT 1;,True,0.5299999999999999,4,1,True,0.0027899742126464844,,False,False,0.0,False,False,True,True,False,4,False,,,,,,,False
+96,car_1,What is the model of the car with the smallest amount of horsepower?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,5,14,"SELECT car_names.Model
+FROM car_names
+JOIN cars_data ON car_names.MakeId = cars_data.Id
+ORDER BY CAST(cars_data.Horsepower AS INTEGER) ASC
+LIMIT 1;",SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.horsepower ASC LIMIT 1;,True,0.83,2,1,True,0.0036635398864746094,,False,False,0.0,False,False,True,True,False,4,False,,,,,,,False
+97,car_1,Find the model of the car whose weight is below the average weight.,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,7,"SELECT T1.Model
+FROM car_names AS T1
+JOIN cars_data AS T2 ON T1.MakeId = T2.Id
+WHERE T2.Weight <
+    (SELECT AVG(Weight)
+     FROM cars_data);",SELECT T1.model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM CARS_DATA),True,0.95,1,1,True,0.003056049346923828,,True,False,0.8,True,True,False,True,True,1,True,,,,,,,False
+98,car_1,What is the model for the car with a weight smaller than the average?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,3,7,"SELECT car_names.Model
+FROM car_names
+JOIN cars_data ON car_names.MakeId = cars_data.Id
+WHERE cars_data.Weight <
+    (SELECT avg(cars_data.Weight)
+     FROM cars_data);",SELECT T1.model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM CARS_DATA),True,0.7999999999999999,2,1,True,0.004180192947387695,,True,False,0.8,False,False,False,True,True,2,True,,,,,,,False
+99,car_1,Find the name of the makers that produced some cars in the year of 1970?,NON_NESTED_COMPLEX,INTERMEDIATE_REPRESENTATION,4,9,"SELECT DISTINCT car_makers.Maker
+FROM car_makers
+JOIN car_names ON car_makers.Id = car_names.MakeId
+JOIN model_list ON car_names.Model = model_list.Model
+JOIN cars_data ON model_list.ModelId = cars_data.Id
+WHERE cars_data.Year = 1970;",SELECT DISTINCT T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker JOIN CAR_NAMES AS T3 ON T2.model  =  T3.model JOIN CARS_DATA AS T4 ON T3.MakeId  =  T4.id WHERE T4.year  =  '1970';,True,0.47,5,0,True,0.004526615142822266,,False,False,0.0,False,False,False,True,True,4,False,,,,,,,False

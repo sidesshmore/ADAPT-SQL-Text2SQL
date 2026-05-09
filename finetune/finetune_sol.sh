@@ -2,7 +2,7 @@
 #SBATCH --job-name=adapt-sql-finetune
 #SBATCH --account=class_cse543spring2026
 #SBATCH --partition=public
-#SBATCH --qos=class_cse543spring2026
+#SBATCH --qos=class
 #SBATCH --gres=gpu:a100:4
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16

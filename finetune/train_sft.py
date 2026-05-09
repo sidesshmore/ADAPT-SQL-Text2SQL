@@ -42,6 +42,7 @@ def parse_args():
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--lora_rank", type=int, default=64)
     p.add_argument("--lora_alpha", type=int, default=128)
+    p.add_argument("--data_file", default=None, help="Pre-built JSON data file (pipeline format). Falls back to Spider train set if not provided.")
     return p.parse_args()
 
 
@@ -132,9 +133,18 @@ def main():
     sft_output.mkdir(parents=True, exist_ok=True)
 
     # ── Load dataset ────────────────────────────────────────────────────────
-    if is_main:
-        print(f"[SFT] Loading Spider training data...")
-    records = load_spider_train(args.project_dir)
+    if args.data_file:
+        if is_main:
+            print(f"[SFT] Loading pipeline-format data from {args.data_file}...")
+        with open(args.data_file) as f:
+            import json as _json
+            records = _json.load(f)
+        if is_main:
+            print(f"[SFT] Loaded {len(records)} records")
+    else:
+        if is_main:
+            print(f"[SFT] Loading Spider training data...")
+        records = load_spider_train(args.project_dir)
     dataset = Dataset.from_list(records)
 
     # ── Quantization config ─────────────────────────────────────────────────

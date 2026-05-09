@@ -46,6 +46,18 @@ pip install -q \
 
 echo "[$(date)] Dependencies ready."
 
+# ── Stage 0: Build pipeline-format SFT data ─────────────────────────────────
+SFT_DATA=$SCRATCH/pipeline_sft_data.json
+if [ ! -f "$SFT_DATA" ]; then
+    echo "[$(date)] Building pipeline-format SFT data..."
+    python $PROJECT/finetune/build_pipeline_sft_data.py \
+        --project_dir $PROJECT \
+        --out $SFT_DATA
+    echo "[$(date)] SFT data built: $SFT_DATA"
+else
+    echo "[$(date)] Using existing SFT data: $SFT_DATA"
+fi
+
 # ── Stage 1: SFT ────────────────────────────────────────────────────────────
 echo "[$(date)] Launching SFT training on 4 GPUs..."
 
@@ -56,6 +68,7 @@ torchrun \
     --project_dir $PROJECT \
     --checkpoint_dir $CHECKPOINT_DIR \
     --hf_cache $HF_CACHE \
+    --data_file $SFT_DATA \
     --epochs 3 \
     --batch_size 1 \
     --grad_accum 8 \

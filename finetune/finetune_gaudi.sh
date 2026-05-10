@@ -10,10 +10,12 @@
 #SBATCH --output=/scratch/%u/finetune_gaudi_%j.log
 #SBATCH --error=/scratch/%u/finetune_gaudi_%j.err
 
-# ── Auto-detect user ─────────────────────────────────────────────────────────
+# ── Auto-detect user and project root ────────────────────────────────────────
 USER=$(whoami)
 SCRATCH=/scratch/$USER
-PROJECT=$SCRATCH/ADAPT-SQL-Text2SQL
+# Resolve project dir from the location of this script (works regardless of
+# whether the repo is at $SCRATCH/ADAPT-SQL-Text2SQL or $SCRATCH/sidessh/...)
+PROJECT=$(cd "$(dirname "$0")/.." && pwd)
 CHECKPOINT_DIR=$SCRATCH/finetune_checkpoints_gaudi
 HF_CACHE=$SCRATCH/hf_cache
 
@@ -43,8 +45,8 @@ pip install -q \
     "trl==1.3.0" \
     "peft>=0.13.0" \
     "accelerate>=0.34.0" \
-    "datasets>=3.0.0" \
-    "optimum-habana>=1.13.0"
+    "datasets>=3.0.0"
+pip install -q --no-deps "optimum-habana" || true
 
 echo "[$(date)] Dependencies ready."
 

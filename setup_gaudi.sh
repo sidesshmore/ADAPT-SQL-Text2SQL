@@ -51,8 +51,14 @@ pip install -q \
     "trl==1.3.0" \
     "peft>=0.13.0" \
     "accelerate>=0.34.0" \
-    "datasets>=3.0.0" \
-    "optimum-habana>=1.13.0"
+    "datasets>=3.0.0"
+
+# optimum-habana conflicts with trl==1.3.0's transformers pin.
+# On Gaudi compute nodes habana_frameworks is a system package; optimum-habana
+# is only needed for its DistributedRunner. Install with --no-deps so it
+# doesn't try to re-resolve transformers.
+pip install -q --no-deps "optimum-habana" || \
+    echo "[WARN] optimum-habana install failed — gaudi_spawn.py will fall back to torchrun (still works on HPU)"
 
 echo "[$(date)] All packages installed."
 

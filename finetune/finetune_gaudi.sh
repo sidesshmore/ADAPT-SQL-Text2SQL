@@ -44,15 +44,22 @@ module load habana 2>/dev/null || \
 [ -f /etc/profile.d/habanalabs.sh ] && source /etc/profile.d/habanalabs.sh || true
 echo "[$(date)] hl-smi: $(hl-smi 2>/dev/null | head -1 || echo 'not found')"
 
-# ── Use the system Gaudi Python env (has habana_frameworks pre-installed) ─────
-GAUDI_PYTHON=/packages/envs/pytorch-2.9.0-gaudi/bin/python
-GAUDI_PIP=/packages/envs/pytorch-2.9.0-gaudi/bin/pip
-export PATH=/packages/envs/pytorch-2.9.0-gaudi/bin:$PATH
-# Block ~/.local user packages — a CUDA torch installed there conflicts with Gaudi torch
+# ── Build a venv that inherits the Gaudi env (gets habana + torch for free) ───
+GAUDI_BASE=/packages/envs/pytorch-2.9.0-gaudi
+GAUDI_VENV=$SCRATCH/gaudi_venv
+# Block ~/.local — a CUDA torch there conflicts with the Gaudi torch
 export PYTHONNOUSERSITE=1
 
-echo "[$(date)] Installing fine-tune dependencies (trl/peft/datasets only — torch already in Gaudi env)..."
-$GAUDI_PIP install -q \
+if [ ! -d "$GAUDI_VENV" ]; then
+    echo "[$(date)] Creating Gaudi venv with system-site-packages..."
+    $GAUDI_BASE/bin/python -m venv --system-site-packages $GAUDI_VENV
+fi
+
+export PATH=$GAUDI_VENV/bin:$GAUDI_BASE/bin:$PATH
+GAUDI_PYTHON=$GAUDI_VENV/bin/python
+
+echo "[$(date)] Installing trl/peft/datasets into Gaudi venv..."
+$GAUDI_VENV/bin/pip install -q \
     "trl==1.3.0" \
     "peft>=0.13.0" \
     "datasets>=3.0.0"

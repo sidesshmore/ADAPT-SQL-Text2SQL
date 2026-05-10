@@ -44,17 +44,21 @@ module load habana 2>/dev/null || \
 [ -f /etc/profile.d/habanalabs.sh ] && source /etc/profile.d/habanalabs.sh || true
 echo "[$(date)] hl-smi: $(hl-smi 2>/dev/null | head -1 || echo 'not found')"
 
-# ── Venv + packages ──────────────────────────────────────────────────────────
-source $PROJECT/venv/bin/activate
+# ── Use the system Gaudi Python env (has habana_frameworks pre-installed) ─────
+GAUDI_PYTHON=/packages/envs/pytorch-2.9.0-gaudi/bin/python
+GAUDI_PIP=/packages/envs/pytorch-2.9.0-gaudi/bin/pip
+export PATH=/packages/envs/pytorch-2.9.0-gaudi/bin:$PATH
 
-echo "[$(date)] Installing/verifying Gaudi fine-tune dependencies..."
-pip install -q \
-    "transformers>=4.45.0" \
+echo "[$(date)] Installing/verifying fine-tune dependencies into Gaudi env..."
+$GAUDI_PIP install -q \
     "trl==1.3.0" \
     "peft>=0.13.0" \
-    "accelerate>=0.34.0" \
+    "datasets>=3.0.0" \
+    --user 2>/dev/null || \
+$GAUDI_PIP install -q \
+    "trl==1.3.0" \
+    "peft>=0.13.0" \
     "datasets>=3.0.0"
-pip install -q --no-deps "optimum-habana" || true
 
 echo "[$(date)] Dependencies ready."
 
@@ -62,7 +66,7 @@ echo "[$(date)] Dependencies ready."
 SFT_DATA=$SCRATCH/pipeline_sft_data.json
 if [ ! -f "$SFT_DATA" ]; then
     echo "[$(date)] Building pipeline-format SFT data..."
-    python $PROJECT/finetune/build_pipeline_sft_data.py \
+    $GAUDI_PYTHON $PROJECT/finetune/build_pipeline_sft_data.py \
         --project_dir $PROJECT \
         --out $SFT_DATA
     echo "[$(date)] SFT data built: $SFT_DATA"
@@ -73,7 +77,7 @@ fi
 # ── Stage 1: SFT ─────────────────────────────────────────────────────────────
 echo "[$(date)] Launching SFT training on 4 Gaudi 2 cards..."
 
-python $PROJECT/finetune/gaudi_spawn.py \
+$GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
     --nproc_per_node 4 \
     $PROJECT/finetune/train_sft_gaudi.py \
     --project_dir $PROJECT \
@@ -93,7 +97,7 @@ echo "[$(date)] SFT finished with exit code $SFT_EXIT"
 # ── Stage 2: GRPO (only if SFT succeeded) ────────────────────────────────────
 if [ $SFT_EXIT -eq 0 ]; then
     echo "[$(date)] Launching GRPO training on Gaudi..."
-    python $PROJECT/finetune/gaudi_spawn.py \
+    $GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
         --nproc_per_node 4 \
         $PROJECT/finetune/train_grpo_gaudi.py \
         --project_dir $PROJECT \

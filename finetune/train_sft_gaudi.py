@@ -107,7 +107,7 @@ def main():
     use_bf16 = False
     try:
         import habana_frameworks.torch.core as htcore  # noqa: F401
-        device = torch.device(f"hpu:{local_rank}")
+        device = torch.device("hpu")   # Gaudi doesn't support hpu:N indexing
         use_bf16 = True
         if is_main:
             print("[SFT] Running on Intel Gaudi (HPU)")
@@ -143,11 +143,14 @@ def main():
     # ── Model (bf16, no quantization) ────────────────────────────────────────
     if is_main:
         print(f"[SFT] Loading {MODEL_ID} in bf16...")
+    # low_cpu_mem_usage=True loads shards one at a time — avoids each of the
+    # 4 DDP processes holding a full 14GB copy in CPU RAM simultaneously.
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         cache_dir=args.hf_cache,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
     )
     model = model.to(device)
 

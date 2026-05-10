@@ -89,8 +89,8 @@ $GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
     --hf_cache $HF_CACHE \
     --data_file $SFT_DATA \
     --epochs 3 \
-    --batch_size 2 \
-    --grad_accum 4 \
+    --batch_size 1 \
+    --grad_accum 8 \
     --lr 2e-5 \
     --lora_rank 64 \
     --lora_alpha 128

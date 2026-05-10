@@ -165,7 +165,7 @@ def main():
     use_bf16 = False
     try:
         import habana_frameworks.torch.core as htcore  # noqa: F401
-        device = torch.device(f"hpu:{local_rank}")
+        device = torch.device("hpu")   # Gaudi doesn't support hpu:N indexing
         use_bf16 = True
         if is_main:
             print("[GRPO] Running on Intel Gaudi (HPU)")
@@ -193,6 +193,7 @@ def main():
         cache_dir=args.hf_cache,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
     )
     base_model = base_model.to(device)
     model = PeftModel.from_pretrained(base_model, str(sft_final), is_trainable=True)

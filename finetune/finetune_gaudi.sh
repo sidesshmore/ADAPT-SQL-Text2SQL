@@ -48,13 +48,10 @@ echo "[$(date)] hl-smi: $(hl-smi 2>/dev/null | head -1 || echo 'not found')"
 GAUDI_PYTHON=/packages/envs/pytorch-2.9.0-gaudi/bin/python
 GAUDI_PIP=/packages/envs/pytorch-2.9.0-gaudi/bin/pip
 export PATH=/packages/envs/pytorch-2.9.0-gaudi/bin:$PATH
+# Block ~/.local user packages — a CUDA torch installed there conflicts with Gaudi torch
+export PYTHONNOUSERSITE=1
 
-echo "[$(date)] Installing/verifying fine-tune dependencies into Gaudi env..."
-$GAUDI_PIP install -q \
-    "trl==1.3.0" \
-    "peft>=0.13.0" \
-    "datasets>=3.0.0" \
-    --user 2>/dev/null || \
+echo "[$(date)] Installing fine-tune dependencies (trl/peft/datasets only — torch already in Gaudi env)..."
 $GAUDI_PIP install -q \
     "trl==1.3.0" \
     "peft>=0.13.0" \

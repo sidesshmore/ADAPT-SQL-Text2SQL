@@ -36,6 +36,14 @@ export PT_HPU_LAZY_MODE=0           # Eager mode (more stable for RL/GRPO)
 export HABANA_LOGS=$SCRATCH/habana_logs
 mkdir -p $HABANA_LOGS
 
+# Load Habana/Gaudi software stack
+module load habana 2>/dev/null || \
+    module load synapse 2>/dev/null || \
+    module load intel-gaudi 2>/dev/null || \
+    echo "[WARN] No Habana module found via module load"
+[ -f /etc/profile.d/habanalabs.sh ] && source /etc/profile.d/habanalabs.sh || true
+echo "[$(date)] hl-smi: $(hl-smi 2>/dev/null | head -1 || echo 'not found')"
+
 # ── Venv + packages ──────────────────────────────────────────────────────────
 source $PROJECT/venv/bin/activate
 

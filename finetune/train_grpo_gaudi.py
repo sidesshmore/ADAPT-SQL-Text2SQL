@@ -162,15 +162,24 @@ def main():
     grpo_output.mkdir(parents=True, exist_ok=True)
 
     # ── Detect device ────────────────────────────────────────────────────────
+    use_bf16 = False
     try:
         import habana_frameworks.torch.core as htcore  # noqa: F401
         device = torch.device(f"hpu:{local_rank}")
+        use_bf16 = True
         if is_main:
             print("[GRPO] Running on Intel Gaudi (HPU)")
     except ImportError:
-        device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            device = torch.device(f"cuda:{local_rank}")
+            use_bf16 = True
+        else:
+            device = torch.device("cpu")
+            use_bf16 = False
         if is_main:
             print(f"[GRPO] Habana not found, falling back to {device}")
+    if is_main:
+        print(f"[GRPO] bf16={use_bf16}")
 
     if is_main:
         print(f"[GRPO] Loading SFT adapter from {sft_final}")
@@ -201,7 +210,7 @@ def main():
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
-        bf16=True,
+        bf16=use_bf16,
         logging_steps=10,
         save_steps=50,
         save_total_limit=2,

@@ -104,15 +104,24 @@ def main():
     sft_output.mkdir(parents=True, exist_ok=True)
 
     # ── Detect device ────────────────────────────────────────────────────────
+    use_bf16 = False
     try:
         import habana_frameworks.torch.core as htcore  # noqa: F401
         device = torch.device(f"hpu:{local_rank}")
+        use_bf16 = True
         if is_main:
             print("[SFT] Running on Intel Gaudi (HPU)")
     except ImportError:
-        device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            device = torch.device(f"cuda:{local_rank}")
+            use_bf16 = True
+        else:
+            device = torch.device("cpu")
+            use_bf16 = False
         if is_main:
             print(f"[SFT] Habana not found, falling back to {device}")
+    if is_main:
+        print(f"[SFT] bf16={use_bf16}")
 
     # ── Dataset ──────────────────────────────────────────────────────────────
     if args.data_file:
@@ -169,7 +178,7 @@ def main():
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,
-        bf16=True,
+        bf16=use_bf16,
         logging_steps=10,
         save_steps=100,
         save_total_limit=3,

@@ -13,9 +13,9 @@
 # ── Auto-detect user and project root ────────────────────────────────────────
 USER=$(whoami)
 SCRATCH=/scratch/$USER
-# Resolve project dir from the location of this script (works regardless of
-# whether the repo is at $SCRATCH/ADAPT-SQL-Text2SQL or $SCRATCH/sidessh/...)
-PROJECT=$(cd "$(dirname "$0")/.." && pwd)
+# SLURM_SUBMIT_DIR is set by sbatch to wherever "sbatch" was run from.
+# Always run: cd /path/to/repo && sbatch finetune/finetune_gaudi.sh
+PROJECT=${SLURM_SUBMIT_DIR:-$SCRATCH/sidessh/ADAPT-SQL-Text2SQL}
 CHECKPOINT_DIR=$SCRATCH/finetune_checkpoints_gaudi
 HF_CACHE=$SCRATCH/hf_cache
 

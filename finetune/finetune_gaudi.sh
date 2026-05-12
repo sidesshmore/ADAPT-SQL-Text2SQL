@@ -3,9 +3,9 @@
 #SBATCH --account=class_cse59827694spring2026
 #SBATCH --partition=gaudi
 #SBATCH --qos=class_gaudi
-#SBATCH --gres=gpu:hl225:1
-#SBATCH --mem=80G
-#SBATCH --cpus-per-task=32
+#SBATCH --gres=gpu:hl225:4
+#SBATCH --mem=200G
+#SBATCH --cpus-per-task=64
 #SBATCH --time=0-24:00:00
 #SBATCH --output=/scratch/%u/finetune_gaudi_%j.log
 #SBATCH --error=/scratch/%u/finetune_gaudi_%j.err
@@ -82,7 +82,7 @@ fi
 echo "[$(date)] Launching SFT training on 4 Gaudi 2 cards..."
 
 $GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
-    --nproc_per_node 1 \
+    --nproc_per_node 4 \
     $PROJECT/finetune/train_sft_gaudi.py \
     --project_dir $PROJECT \
     --checkpoint_dir $CHECKPOINT_DIR \
@@ -102,7 +102,7 @@ echo "[$(date)] SFT finished with exit code $SFT_EXIT"
 if [ $SFT_EXIT -eq 0 ]; then
     echo "[$(date)] Launching GRPO training on Gaudi..."
     $GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
-        --nproc_per_node 1 \
+        --nproc_per_node 4 \
         $PROJECT/finetune/train_grpo_gaudi.py \
         --project_dir $PROJECT \
         --checkpoint_dir $CHECKPOINT_DIR \

@@ -4,7 +4,7 @@
 #SBATCH --partition=gaudi
 #SBATCH --qos=class_gaudi
 #SBATCH --gres=gpu:hl225:4
-#SBATCH --mem=200G
+#SBATCH --mem=400G
 #SBATCH --cpus-per-task=64
 #SBATCH --time=0-24:00:00
 #SBATCH --output=/scratch/%u/finetune_gaudi_%j.log
@@ -89,8 +89,8 @@ $GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
     --hf_cache $HF_CACHE \
     --data_file $SFT_DATA \
     --epochs 3 \
-    --batch_size 1 \
-    --grad_accum 8 \
+    --batch_size 4 \
+    --grad_accum 4 \
     --lr 2e-5 \
     --lora_rank 64 \
     --lora_alpha 128
@@ -108,7 +108,7 @@ if [ $SFT_EXIT -eq 0 ]; then
         --checkpoint_dir $CHECKPOINT_DIR \
         --hf_cache $HF_CACHE \
         --epochs 3 \
-        --batch_size 1 \
+        --batch_size 2 \
         --grad_accum 4 \
         --lr 1e-5
     echo "[$(date)] GRPO finished with exit code $?"

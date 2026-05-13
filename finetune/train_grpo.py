@@ -30,8 +30,8 @@ from trl import GRPOConfig, GRPOTrainer
 
 
 MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
-MAX_SEQ_LEN = 1024
-MAX_NEW_TOKENS = 256
+MAX_SEQ_LEN = 512
+MAX_NEW_TOKENS = 128
 
 
 def parse_args():

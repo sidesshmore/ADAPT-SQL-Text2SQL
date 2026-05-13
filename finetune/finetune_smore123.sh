@@ -24,6 +24,7 @@ export HOME=/home/$USER
 export HF_HOME=$HF_CACHE
 export TRANSFORMERS_CACHE=$HF_CACHE
 export HF_DATASETS_CACHE=$HF_CACHE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 mkdir -p $HF_CACHE $CHECKPOINT_DIR
 
 module load cuda 2>/dev/null

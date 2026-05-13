@@ -20,9 +20,17 @@ import tempfile
 from pathlib import Path
 
 # Pin this process to its own GPU before any CUDA init.
-# torchrun sets LOCAL_RANK but not CUDA_VISIBLE_DEVICES; without this all
-# ranks see all GPUs and NCCL raises "Duplicate GPU detected".
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(int(os.environ.get("LOCAL_RANK", 0))))
+# SLURM sets CUDA_VISIBLE_DEVICES to all assigned GPUs (e.g. "0,1,2,3").
+# All torchrun child processes inherit that same value, so every rank sees
+# every GPU and NCCL or the allocator collides. We slice to the rank-th
+# entry so each process owns exactly one GPU as cuda:0.
+_local_rank = int(os.environ.get("LOCAL_RANK", 0))
+_slurm_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+if _slurm_gpus:
+    _gpu_list = _slurm_gpus.split(",")
+    os.environ["CUDA_VISIBLE_DEVICES"] = _gpu_list[_local_rank % len(_gpu_list)]
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(_local_rank)
 
 import torch
 from datasets import Dataset

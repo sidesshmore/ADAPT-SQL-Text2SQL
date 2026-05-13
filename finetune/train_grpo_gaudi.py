@@ -170,9 +170,11 @@ def main():
     use_bf16 = False
     try:
         import habana_frameworks.torch.core as htcore  # noqa: F401
-        import habana_frameworks.torch.distributed.hccl  # registers hccl backend
-        if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="hccl")
+        world_size = int(os.environ.get("WORLD_SIZE", 1))
+        if world_size > 1:
+            import habana_frameworks.torch.distributed.hccl  # registers hccl backend
+            if not torch.distributed.is_initialized():
+                torch.distributed.init_process_group(backend="hccl")
         device = torch.device("hpu")
         use_bf16 = True
         if is_main:

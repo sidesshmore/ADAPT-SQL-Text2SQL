@@ -107,15 +107,13 @@ fi
 GRPO_EXIT=1
 if [ $SFT_EXIT -eq 0 ]; then
     echo "[$(date)] Launching GRPO training on Gaudi..."
-    $GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
-        --nproc_per_node 4 \
-        $PROJECT/finetune/train_grpo_gaudi.py \
+    $GAUDI_PYTHON $PROJECT/finetune/train_grpo_gaudi.py \
         --project_dir $PROJECT \
         --checkpoint_dir $CHECKPOINT_DIR \
         --hf_cache $HF_CACHE \
         --epochs 3 \
         --batch_size 2 \
-        --grad_accum 4 \
+        --grad_accum 16 \
         --lr 1e-5
     GRPO_EXIT=$?
     echo "[$(date)] GRPO finished with exit code $GRPO_EXIT"

@@ -32,7 +32,7 @@ export PYTHONUNBUFFERED=1
 mkdir -p $HF_CACHE $CHECKPOINT_DIR
 
 # Gaudi-specific env
-export PT_HPU_LAZY_MODE=0           # Eager mode (more stable for RL/GRPO)
+# PT_HPU_LAZY_MODE=0 (eager) breaks _hpu_C.init() on this Synapse AI build — leave unset (defaults to lazy=1)
 export HABANA_LOGS=$SCRATCH/habana_logs
 mkdir -p $HABANA_LOGS
 
@@ -42,7 +42,19 @@ module load habana 2>/dev/null || \
     module load intel-gaudi 2>/dev/null || \
     echo "[WARN] No Habana module found via module load"
 [ -f /etc/profile.d/habanalabs.sh ] && source /etc/profile.d/habanalabs.sh || true
-echo "[$(date)] hl-smi: $(hl-smi 2>/dev/null | head -1 || echo 'not found')"
+echo "[$(date)] hl-smi output:"
+hl-smi 2>/dev/null || echo "hl-smi not found"
+
+# ── HPU smoke test (verify device access before training) ────────────────────
+echo "[$(date)] HPU smoke test..."
+$GAUDI_BASE/bin/python -c "
+import habana_frameworks.torch.core as htcore
+import torch
+count = torch.hpu.device_count() if hasattr(torch, 'hpu') else 0
+print('HPU device_count:', count)
+t = torch.zeros(1).to('hpu')
+print('Smoke test passed:', t.device)
+" && echo "[$(date)] HPU smoke test PASSED" || { echo "[$(date)] HPU smoke test FAILED — aborting"; exit 1; }
 
 # ── Build a venv that inherits the Gaudi env (gets habana + torch for free) ───
 GAUDI_BASE=/packages/envs/pytorch-2.9.0-gaudi

@@ -79,26 +79,31 @@ else
 fi
 
 # ── Stage 1: SFT ─────────────────────────────────────────────────────────────
-echo "[$(date)] Launching SFT training on 4 Gaudi 2 cards..."
-
-$GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
-    --nproc_per_node 4 \
-    $PROJECT/finetune/train_sft_gaudi.py \
-    --project_dir $PROJECT \
-    --checkpoint_dir $CHECKPOINT_DIR \
-    --hf_cache $HF_CACHE \
-    --data_file $SFT_DATA \
-    --epochs 3 \
-    --batch_size 4 \
-    --grad_accum 4 \
-    --lr 2e-5 \
-    --lora_rank 64 \
-    --lora_alpha 128
-
-SFT_EXIT=$?
-echo "[$(date)] SFT finished with exit code $SFT_EXIT"
+SFT_FINAL=$CHECKPOINT_DIR/sft/final
+if [ -f "$SFT_FINAL/adapter_model.safetensors" ]; then
+    echo "[$(date)] SFT final model already exists at $SFT_FINAL — skipping SFT."
+    SFT_EXIT=0
+else
+    echo "[$(date)] Launching SFT training on 4 Gaudi 2 cards..."
+    $GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
+        --nproc_per_node 4 \
+        $PROJECT/finetune/train_sft_gaudi.py \
+        --project_dir $PROJECT \
+        --checkpoint_dir $CHECKPOINT_DIR \
+        --hf_cache $HF_CACHE \
+        --data_file $SFT_DATA \
+        --epochs 3 \
+        --batch_size 4 \
+        --grad_accum 4 \
+        --lr 2e-5 \
+        --lora_rank 64 \
+        --lora_alpha 128
+    SFT_EXIT=$?
+    echo "[$(date)] SFT finished with exit code $SFT_EXIT"
+fi
 
 # ── Stage 2: GRPO (only if SFT succeeded) ────────────────────────────────────
+GRPO_EXIT=1
 if [ $SFT_EXIT -eq 0 ]; then
     echo "[$(date)] Launching GRPO training on Gaudi..."
     $GAUDI_PYTHON $PROJECT/finetune/gaudi_spawn.py \
@@ -111,10 +116,12 @@ if [ $SFT_EXIT -eq 0 ]; then
         --batch_size 2 \
         --grad_accum 4 \
         --lr 1e-5
-    echo "[$(date)] GRPO finished with exit code $?"
+    GRPO_EXIT=$?
+    echo "[$(date)] GRPO finished with exit code $GRPO_EXIT"
 else
     echo "[$(date)] Skipping GRPO — SFT did not complete cleanly."
 fi
 
 echo "[$(date)] All done. Checkpoints at: $CHECKPOINT_DIR"
 echo "[$(date)] Run merge_export.sh to convert to Ollama model."
+exit $GRPO_EXIT

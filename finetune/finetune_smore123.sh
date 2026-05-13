@@ -2,7 +2,7 @@
 #SBATCH --job-name=adapt-sql-smore123
 #SBATCH --account=grp_hdavulcu
 #SBATCH --partition=public
-#SBATCH --qos=normal
+#SBATCH --qos=public
 #SBATCH --gres=gpu:4
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16

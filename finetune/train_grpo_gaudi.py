@@ -25,7 +25,7 @@ from trl import GRPOConfig, GRPOTrainer
 
 MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 MAX_SEQ_LEN = 1024
-MAX_NEW_TOKENS = 256
+MAX_NEW_TOKENS = 512
 
 
 def parse_args():
@@ -218,7 +218,7 @@ def main():
         report_to="none",
         max_completion_length=MAX_NEW_TOKENS,
         temperature=0.7,
-        num_generations=2,
+        num_generations=4,
         gradient_checkpointing=True,
         ddp_find_unused_parameters=False,
     )

@@ -256,7 +256,7 @@ def main():
         save_steps=50,
         save_total_limit=2,
         report_to="none",
-        max_new_tokens=MAX_NEW_TOKENS,
+        max_completion_length=MAX_NEW_TOKENS,
         temperature=0.7,
         num_generations=2,
         gradient_checkpointing=True,

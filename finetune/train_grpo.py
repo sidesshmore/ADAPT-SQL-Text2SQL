@@ -5,11 +5,14 @@ Loads the SFT adapter from Stage 1 and continues training with a
 4-component reward: format correctness, SQL executability, result
 match against gold, and length penalty.
 
-Launch via finetune_sol.sh or directly:
-    torchrun --nproc_per_node=4 --master_port=29501 finetune/train_grpo.py \
+Launch via finetune_smore123.sh or directly:
+    python finetune/train_grpo.py \
         --project_dir /scratch/$USER/ADAPT-SQL-Text2SQL \
         --checkpoint_dir /scratch/$USER/finetune_checkpoints \
         --hf_cache /scratch/$USER/hf_cache
+
+NOTE: bitsandbytes 4-bit quantization is incompatible with DDP — quantized
+weights cannot be synchronized across ranks. Run on a single GPU only.
 """
 import argparse
 import json
@@ -18,19 +21,6 @@ import re
 import sqlite3
 import tempfile
 from pathlib import Path
-
-# Pin this process to its own GPU before any CUDA init.
-# SLURM sets CUDA_VISIBLE_DEVICES to all assigned GPUs (e.g. "0,1,2,3").
-# All torchrun child processes inherit that same value, so every rank sees
-# every GPU and NCCL or the allocator collides. We slice to the rank-th
-# entry so each process owns exactly one GPU as cuda:0.
-_local_rank = int(os.environ.get("LOCAL_RANK", 0))
-_slurm_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-if _slurm_gpus:
-    _gpu_list = _slurm_gpus.split(",")
-    os.environ["CUDA_VISIBLE_DEVICES"] = _gpu_list[_local_rank % len(_gpu_list)]
-else:
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(_local_rank)
 
 import torch
 from datasets import Dataset
@@ -239,7 +229,7 @@ def main():
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         quantization_config=bnb_config,
-        device_map={"": 0},
+        device_map="auto",
         cache_dir=args.hf_cache,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,

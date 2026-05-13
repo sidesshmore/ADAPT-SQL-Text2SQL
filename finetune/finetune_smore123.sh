@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=adapt-sql-smore123
-#SBATCH --account=class_cse543spring2026
+#SBATCH --account=grp_hdavulcu
 #SBATCH --partition=public
-#SBATCH --qos=class
+#SBATCH --qos=normal
 #SBATCH --gres=gpu:a100:4
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16

@@ -3,7 +3,7 @@
 #SBATCH --account=grp_hdavulcu
 #SBATCH --partition=public
 #SBATCH --qos=normal
-#SBATCH --gres=gpu:a100:4
+#SBATCH --gres=gpu:4
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
 #SBATCH --time=0-12:00:00

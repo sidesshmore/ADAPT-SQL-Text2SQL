@@ -19,6 +19,11 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
+# Pin this process to its own GPU before any CUDA init.
+# torchrun sets LOCAL_RANK but not CUDA_VISIBLE_DEVICES; without this all
+# ranks see all GPUs and NCCL raises "Duplicate GPU detected".
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(int(os.environ.get("LOCAL_RANK", 0))))
+
 import torch
 from datasets import Dataset
 from peft import PeftModel
@@ -226,7 +231,7 @@ def main():
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         quantization_config=bnb_config,
-        device_map={"": local_rank},
+        device_map={"": 0},
         cache_dir=args.hf_cache,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,

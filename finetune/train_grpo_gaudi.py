@@ -165,7 +165,10 @@ def main():
     use_bf16 = False
     try:
         import habana_frameworks.torch.core as htcore  # noqa: F401
-        device = torch.device("hpu")   # Gaudi doesn't support hpu:N indexing
+        import habana_frameworks.torch.distributed.hccl  # registers hccl backend
+        if not torch.distributed.is_initialized():
+            torch.distributed.init_process_group(backend="hccl")
+        device = torch.device("hpu")
         use_bf16 = True
         if is_main:
             print("[GRPO] Running on Intel Gaudi (HPU)")
@@ -192,7 +195,7 @@ def main():
         MODEL_ID,
         cache_dir=args.hf_cache,
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
     )
     base_model = base_model.to(device)

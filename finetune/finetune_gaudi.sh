@@ -58,11 +58,12 @@ fi
 export PATH=$GAUDI_VENV/bin:$GAUDI_BASE/bin:$PATH
 GAUDI_PYTHON=$GAUDI_VENV/bin/python
 
-echo "[$(date)] Installing trl/peft/datasets into Gaudi venv..."
+echo "[$(date)] Installing trl/peft/datasets/optimum-habana into Gaudi venv..."
 $GAUDI_VENV/bin/pip install -q \
     "trl==1.3.0" \
     "peft>=0.13.0" \
-    "datasets>=3.0.0"
+    "datasets>=3.0.0" \
+    "optimum-habana"
 
 echo "[$(date)] Dependencies ready."
 

@@ -149,7 +149,7 @@ def main():
         MODEL_ID,
         cache_dir=args.hf_cache,
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
     )
     model = model.to(device)

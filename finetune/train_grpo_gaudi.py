@@ -154,6 +154,11 @@ def main():
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     is_main = local_rank == 0
 
+    # Must be set before habana_frameworks is imported. The Synapse AI runtime
+    # acquires a physical HPU card at import time; without this each torchrun
+    # worker defaults to card 0 and ranks 1-3 get "Device not found".
+    os.environ["HABANA_VISIBLE_DEVICES"] = str(local_rank)
+
     os.environ["HF_HOME"] = args.hf_cache
     os.environ["TRANSFORMERS_CACHE"] = args.hf_cache
 

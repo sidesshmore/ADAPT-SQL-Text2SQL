@@ -45,17 +45,6 @@ module load habana 2>/dev/null || \
 echo "[$(date)] hl-smi output:"
 hl-smi 2>/dev/null || echo "hl-smi not found"
 
-# ── HPU smoke test (verify device access before training) ────────────────────
-echo "[$(date)] HPU smoke test..."
-$GAUDI_BASE/bin/python -c "
-import habana_frameworks.torch.core as htcore
-import torch
-count = torch.hpu.device_count() if hasattr(torch, 'hpu') else 0
-print('HPU device_count:', count)
-t = torch.zeros(1).to('hpu')
-print('Smoke test passed:', t.device)
-" && echo "[$(date)] HPU smoke test PASSED" || { echo "[$(date)] HPU smoke test FAILED — aborting"; exit 1; }
-
 # ── Build a venv that inherits the Gaudi env (gets habana + torch for free) ───
 GAUDI_BASE=/packages/envs/pytorch-2.9.0-gaudi
 GAUDI_VENV=$SCRATCH/gaudi_venv
@@ -78,6 +67,17 @@ $GAUDI_VENV/bin/pip install -q \
     "optimum-habana"
 
 echo "[$(date)] Dependencies ready."
+
+# ── HPU smoke test (verify device access before training) ────────────────────
+echo "[$(date)] HPU smoke test..."
+$GAUDI_PYTHON -c "
+import habana_frameworks.torch.core as htcore
+import torch
+count = torch.hpu.device_count() if hasattr(torch, 'hpu') else 0
+print('HPU device_count:', count)
+t = torch.zeros(1).to('hpu')
+print('Smoke test passed:', t.device)
+" && echo "[$(date)] HPU smoke test PASSED" || { echo "[$(date)] HPU smoke test FAILED — aborting"; exit 1; }
 
 # ── Stage 0: Build pipeline-format SFT data ──────────────────────────────────
 SFT_DATA=$SCRATCH/pipeline_sft_data.json

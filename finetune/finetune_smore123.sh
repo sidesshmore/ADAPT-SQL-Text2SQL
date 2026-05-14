@@ -97,4 +97,8 @@ else
 fi
 
 echo "[$(date)] All done. Checkpoints at: $CHECKPOINT_DIR"
-echo "[$(date)] Run merge_export.sh to convert to Ollama model."
+
+# ── Stage 3: Merge LoRA + export to GGUF ────────────────────────────────────
+echo "[$(date)] Running merge + GGUF export..."
+bash $PROJECT/finetune/merge_export.sh
+echo "[$(date)] Merge/export finished with exit code $?"

@@ -627,66 +627,61 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                 generated_sql = r6['generated_sql']
                 results['step6c'] = r6
 
-        # Multi-candidate selection (Phase C): generate N additional candidates and pick by majority vote
-        # Replaces the old GoT alt-candidate with a proper execution-based majority selector
+        # GoT alt-candidate: generate a structurally diverse SQL via Graph-of-Thought,
+        # select it only when primary returns 0 rows but alt returns results, or primary
+        # fails plausibility while alt passes. (AP-SQL GoT approach, restored from fix-4.)
         results['multi_candidate'] = None
         if enable_multi_candidate and generated_sql and db_path:
             print("\n" + "="*70)
-            print("STEP 6 (ALT): MULTI-CANDIDATE GENERATION + EXECUTION SELECTION")
+            print("STEP 6 (ALT): MULTI-CANDIDATE GENERATION")
             print("="*70 + "\n")
 
-            extra_candidates: List[str] = []
-            if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
-                extra_candidates = self.few_shot_generator.generate_candidates(
-                    natural_query, results['step1']['pruned_schema'],
-                    results['step1']['schema_links'], results['step4'].get('similar_examples', []),
-                    n=2, set_op_hint=set_op_hint
-                )
-            elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
-                extra_candidates = self.intermediate_generator.generate_candidates(
-                    natural_query, results['step1']['pruned_schema'],
-                    results['step1']['schema_links'], results['step4'].get('similar_examples', []),
-                    n=2, set_op_hint=set_op_hint
-                )
-            elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
-                extra_candidates = self.decomposed_generator.generate_candidates(
-                    natural_query, results['step1']['pruned_schema'],
-                    results['step1']['schema_links'],
-                    results['step2']['sub_questions'],
-                    results['step4'].get('similar_examples', []),
-                    few_shot_generator=self.few_shot_generator,
-                    intermediate_generator=self.intermediate_generator,
-                    python_hint=python_hint,
-                    set_op_hint=set_op_hint,
-                    n=2
-                )
+            alt_sql = self._generate_alternative_candidate(
+                question=natural_query,
+                pruned_schema=results['step1']['pruned_schema'],
+                schema_links=results['step1']['schema_links'],
+                strategy_value=strategy.value,
+                selected_examples=results['step4'].get('similar_examples', [])
+            )
+            if alt_sql:
+                primary_exec = self.db_manager.execute_query(generated_sql, db_path)
+                alt_exec = self.db_manager.execute_query(alt_sql, db_path)
 
-            all_candidates = [generated_sql] + [c for c in extra_candidates if c]
-            print(f"   Selecting from {len(all_candidates)} candidate(s)")
+                primary_rows = len(primary_exec.get('result_rows', [])) if primary_exec.get('success') else -1
+                alt_rows = len(alt_exec.get('result_rows', [])) if alt_exec.get('success') else -1
 
-            sel = self.candidate_selector.select(all_candidates, db_path)
-            winner_sql = sel['winner_sql']
-            winner_idx = sel['winner_index']
-            winner_reason = sel['winner_reason']
+                primary_plaus = primary_exec.get('plausibility_check') or {}
+                alt_plaus = alt_exec.get('plausibility_check') or {}
+                primary_plausible = primary_plaus.get('plausible', True)
+                alt_plausible = alt_plaus.get('plausible', True)
 
-            if winner_idx != 0:
-                print(f"   ✅ Candidate [{winner_idx}] selected ({winner_reason})")
-                generated_sql = winner_sql
+                use_alt = False
+                reason = ""
+                if primary_rows == 0 and alt_rows > 0:
+                    use_alt = True
+                    reason = f"{alt_rows} rows vs 0 for primary"
+                elif not primary_plausible and alt_plausible and alt_rows > 0:
+                    use_alt = True
+                    reason = f"primary failed plausibility ({primary_plaus.get('issue', '?')}), alt passed"
+
+                if use_alt:
+                    print(f"   ✅ Alternative candidate selected ({reason})")
+                    generated_sql = alt_sql
+                else:
+                    print(f"   Primary candidate kept ({primary_rows} rows vs {alt_rows} for alternative)")
+
+                results['multi_candidate'] = {
+                    'primary_sql': results.get('final_sql', generated_sql),
+                    'alt_sql': alt_sql,
+                    'primary_rows': primary_rows,
+                    'alt_rows': alt_rows,
+                    'winner': 'alt' if use_alt else 'primary',
+                    'winner_index': 1 if use_alt else 0,
+                    'winner_reason': reason if use_alt else 'primary_rows_ok',
+                    'n_candidates': 2,
+                }
             else:
-                print(f"   Primary candidate kept ({winner_reason})")
-
-            # Log GoT-compatible multi_candidate dict for batch_utils.py
-            primary_exec = sel['exec_results'][0] if sel['exec_results'] else {}
-            results['multi_candidate'] = {
-                'primary_sql': all_candidates[0],
-                'alt_sql': winner_sql if winner_idx != 0 else (all_candidates[1] if len(all_candidates) > 1 else ''),
-                'primary_rows': primary_exec.get('row_count', -1),
-                'alt_rows': sel['exec_results'][winner_idx].get('row_count', -1) if winner_idx < len(sel['exec_results']) else -1,
-                'winner': 'alt' if winner_idx != 0 else 'primary',
-                'winner_index': winner_idx,
-                'winner_reason': winner_reason,
-                'n_candidates': len(all_candidates),
-            }
+                print("   ⚠️  Alternative candidate generation skipped (empty output)")
 
         # Step 6.5: SQL Normalization (if enabled)
         if self.enable_sql_normalization and generated_sql:

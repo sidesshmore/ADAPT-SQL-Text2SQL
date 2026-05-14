@@ -54,7 +54,7 @@ from pipeline.candidate_selector import CandidateSelector
 class ADAPTBaseline:
     def __init__(
         self,
-        model: str = "qwen2.5-coder:32b",
+        model: str = "qwen3-coder",
         vector_store_path: str = None,
         max_retries: int = 2,
         execution_timeout: int = 30,

@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=adapt-eval
-#SBATCH --account=class_cse543spring2026
+#SBATCH --account=grp_hdavulcu
 #SBATCH --partition=public
-#SBATCH --qos=class
-#SBATCH --gres=gpu:a100:1
+#SBATCH --qos=public
+#SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=0-02:00:00

@@ -725,27 +725,9 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                 'reasoning': 'No SQL was generated in Step 6'
             }
         
-        # E': Deterministic Checker Chain (DeepEye-SQL)
-        # Run 6 rule-based checkers and inject any directive into step7 errors
-        # so that the retry engine receives an explicit correction instruction.
+        # CheckerChain disabled: false positives on ORDER BY COUNT(*), SELECT *,
+        # and 0-row results were corrupting correct answers and forcing bad retries.
         results['checker_chain'] = None
-        if generated_sql and enable_retry:
-            checker = CheckerChain(schema_links=results['step1']['schema_links'])
-            check_result = checker.run(
-                generated_sql,
-                db_path=db_path if enable_execution else None,
-                db_manager=self.db_manager if enable_execution else None,
-                question=natural_query
-            )
-            results['checker_chain'] = check_result
-            if not check_result['passed']:
-                print(f"⚠️  Checker '{check_result['checker']}' failed — injecting directive into retry")
-                results['step7']['errors'].append({
-                    'type': 'CHECKER_CHAIN',
-                    'message': check_result['directive'],
-                    'severity': 'HIGH'
-                })
-                results['step7']['is_valid'] = False
 
         # Step 8: Validation-Feedback Retry (if enabled and needed)
         final_sql = generated_sql

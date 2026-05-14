@@ -20,7 +20,7 @@ class SetOpDetector:
     INTERSECT_SIGNALS = [
         'who are also', 'that are also', 'which are also',
         'in common', 'shared between', 'appear in both',
-        'both', 'at the same time', 'simultaneously',
+        'at the same time', 'simultaneously',
     ]
     UNION_SIGNALS = [
         'combined with', 'together with', 'as well as',

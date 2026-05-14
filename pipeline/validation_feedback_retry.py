@@ -627,6 +627,101 @@ class ValidationFeedbackRetry:
 
         return {'final_sql': final_sql, 'sql_changed': changed}
 
+    def retry_with_exec_error_feedback(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        current_sql: str,
+        error_msg: str,
+        generation_strategy: str,
+        db_path: str = None,
+        db_manager=None
+    ) -> Dict:
+        """
+        Execution error retry: SQL completely failed to execute (SQLite error).
+        Passes the exact error message back to the LLM to guide correction.
+        Inspired by LitE-SQL and MAC-SQL Refiner patterns.
+        """
+        print(f"\n{'='*60}")
+        print("STEP 8 (EXEC-ERROR): EXECUTION-ERROR RETRY")
+        print(f"{'='*60}\n")
+        print(f"⚠️  SQL execution failed: {error_msg[:120]}")
+
+        schema_str = ""
+        for table_name, columns in sorted(pruned_schema.items()):
+            col_list = ", ".join(
+                f"{c['column_name']} ({c.get('data_type', '')})" for c in columns
+            )
+            schema_str += f"  {table_name}: {col_list}\n"
+
+        fk_str = ""
+        for fk in schema_links.get('foreign_keys', []):
+            fk_str += f"  {fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}\n"
+        if not fk_str:
+            fk_str = "  (none)\n"
+
+        prompt = f"""# SQL Execution Error Fix
+
+## Error
+The SQL below failed to execute with this error:
+```
+{error_msg}
+```
+
+## Question
+{question}
+
+## Schema
+{schema_str}
+## Foreign Keys
+{fk_str}
+## Failed SQL
+```sql
+{current_sql}
+```
+
+## Fix Instructions
+- Identify the exact cause of the execution error
+- Fix only that issue; preserve the query's intent
+- Use ONLY table and column names from the schema above
+- Output ONLY the corrected SQL (no explanations, no markdown fences):"""
+
+        corrected_sql = current_sql
+        try:
+            client = _get_ollama_client()
+            response = client.chat(
+                model=self.model,
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': 'You are an expert SQL debugger. Fix the SQL error exactly as described. Output ONLY the corrected SQL.'
+                    },
+                    {'role': 'user', 'content': prompt}
+                ],
+                options={'temperature': 0.1}
+            )
+            corrected_sql = self._clean_sql(response['message']['content'].strip())
+        except Exception as e:
+            print(f"   ⚠️  Exec-error retry LLM call failed: {e}")
+            return {'final_sql': current_sql, 'sql_changed': False}
+
+        if corrected_sql == current_sql:
+            print("   No change — keeping original SQL")
+            return {'final_sql': current_sql, 'sql_changed': False}
+
+        if db_manager and db_path:
+            exec_result = db_manager.execute_query(corrected_sql, db_path)
+            if exec_result.get('success'):
+                print(f"   ✅ Fixed! Corrected SQL executes successfully")
+                return {'final_sql': corrected_sql, 'sql_changed': True}
+            else:
+                print(f"   ⚠️  Corrected SQL still fails — keeping original")
+                return {'final_sql': current_sql, 'sql_changed': False}
+
+        print(f"   ✅ SQL corrected (no db_manager to verify)")
+        return {'final_sql': corrected_sql, 'sql_changed': True}
+
     def _regenerate_for_implausible_result(
         self,
         question: str,

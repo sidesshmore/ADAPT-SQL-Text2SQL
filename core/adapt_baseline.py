@@ -785,6 +785,28 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             # Execute generated SQL
             results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
 
+            # Execution error retry: SQL completely failed to execute (syntax/schema error)
+            results['exec_error_retry'] = None
+            exec_result = results['step10_generated']
+            if (enable_execution_retry and
+                    exec_result and
+                    not exec_result.get('success')):
+                exec_error_retry = self.retry_engine.retry_with_exec_error_feedback(
+                    question=natural_query,
+                    pruned_schema=results['step1']['pruned_schema'],
+                    schema_links=results['step1']['schema_links'],
+                    current_sql=final_sql,
+                    error_msg=exec_result.get('error', ''),
+                    generation_strategy=strategy.value,
+                    db_path=db_path,
+                    db_manager=self.db_manager
+                )
+                results['exec_error_retry'] = exec_error_retry
+                if exec_error_retry.get('sql_changed'):
+                    final_sql = exec_error_retry['final_sql']
+                    results['final_sql'] = final_sql
+                    results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
+
             # Execution-driven retry: fix queries that return 0 rows on a positive question
             exec_result = results['step10_generated']
             if (enable_execution_retry and

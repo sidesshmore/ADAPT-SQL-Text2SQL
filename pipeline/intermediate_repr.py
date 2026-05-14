@@ -312,7 +312,7 @@ class IntermediateRepresentationGenerator:
         examples: List[Dict],
         gt_patterns: Dict,
         set_op_hint: str = '',
-        temperature: float = 0.1
+        temperature: float = 0.2
     ) -> Dict:
         """
         NEW: Generate NatSQL for ANY query type (EASY, NON_NESTED, NESTED)
@@ -642,7 +642,7 @@ Examples:
         
         return schema_str
     
-    def _generate_with_llm(self, prompt: str, system_msg: str, temperature: float = 0.1) -> str:
+    def _generate_with_llm(self, prompt: str, system_msg: str, temperature: float = 0.2) -> str:
         """Generate using LLM"""
         try:
             response = ollama.chat(

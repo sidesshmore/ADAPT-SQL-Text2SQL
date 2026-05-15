@@ -734,6 +734,21 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                             extra.append(skel_sql)
                     except Exception as _e_sk:
                         pass
+                    # Direct SQL (bypass NatSQL) — cross-strategy diversity
+                    # When NatSQL intermediate consistently fails on a pattern,
+                    # this candidate provides a genuinely different generation path.
+                    try:
+                        direct_sql = self.intermediate_generator.generate_direct_sql(
+                            question=generation_query,
+                            pruned_schema=results['step1']['pruned_schema'],
+                            schema_links=results['step1']['schema_links'],
+                            selected_examples=results['step4'].get('similar_examples', []),
+                            set_op_hint=set_op_hint,
+                        )
+                        if direct_sql:
+                            extra.append(direct_sql)
+                    except Exception as _e_direct:
+                        pass
                 elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
                     extra = self.decomposed_generator.generate_candidates(
                         question=generation_query,

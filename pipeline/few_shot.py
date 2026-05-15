@@ -285,7 +285,8 @@ class FewShotGenerator:
         prompt += "1. Add explicit FROM clause\n"
         prompt += "2. Convert WHERE @ JOIN to proper JOIN ON\n"
         prompt += "3. Use standard SQL syntax\n"
-        prompt += "4. Match the style of ground truth examples\n\n"
+        prompt += "4. Match the style of ground truth examples\n"
+        prompt += "5. Aggregate conditions (COUNT(*) > N, AVG(col) > N, etc.) go in HAVING, not WHERE.\n\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

@@ -388,6 +388,64 @@ class IntermediateRepresentationGenerator:
         except Exception:
             return ''
 
+    def generate_direct_sql(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        selected_examples: List[Dict],
+        set_op_hint: str = '',
+    ) -> str:
+        """
+        Generate SQL directly without NatSQL intermediate step.
+
+        Provides cross-strategy structural diversity for NON_NESTED queries:
+        all other candidates go through NatSQL→SQL (two LLM hops). If NatSQL
+        systematically fails for a query pattern, this candidate offers a
+        genuinely different generation path.
+        """
+        schema_str = self._format_schema(pruned_schema, schema_links)
+
+        fk_lines = []
+        for fk in schema_links.get('foreign_keys', [])[:6]:
+            fk_lines.append(
+                f"  {fk.get('from_table','')}.{fk.get('from_column','')} "
+                f"= {fk.get('to_table','')}.{fk.get('to_column','')}"
+            )
+        fk_str = ('Foreign keys:\n' + '\n'.join(fk_lines)) if fk_lines else ''
+
+        best = self._select_best_examples(selected_examples, n=4)
+        examples_str = ''
+        for ex in best:
+            q = ex.get('question', '')
+            s = ex.get('query', ex.get('sql', ''))
+            if q and s:
+                examples_str += f"Question: {q}\nSQL: {s}\n\n"
+
+        prompt = (
+            f"Write a SQL query for the following question.\n\n"
+            f"Schema:\n{schema_str}\n"
+            f"{fk_str}\n\n"
+            f"Examples:\n{examples_str}"
+            f"{set_op_hint + chr(10) if set_op_hint else ''}"
+            f"Question: {question}\n\n"
+            "Rules:\n"
+            "1. Use only tables/columns from the schema above.\n"
+            "2. Join tables via their foreign keys.\n"
+            "3. Aggregate conditions (COUNT(*) > N, AVG(col) > N, etc.) go in HAVING, not WHERE.\n"
+            "4. Output ONLY the SQL query, no explanation.\n\n"
+            "SQL:"
+        )
+        try:
+            raw = self._generate_with_llm(
+                prompt,
+                "You are an expert SQL writer. Output only the SQL query.",
+                temperature=0.3,
+            )
+            return self._clean_sql(raw)
+        except Exception:
+            return ''
+
     def _generate_natsql_universal(
         self,
         question: str,
@@ -640,6 +698,7 @@ Examples:
         prompt += "Convert to normalized SQL following the rules and ground truth patterns above.\n"
         if original_question:
             prompt += "CRITICAL: Before outputting, verify every filter condition from the original question appears in WHERE/HAVING.\n"
+        prompt += "CRITICAL SQL RULE: Aggregate conditions (COUNT(*) > N, SUM(col) > N, AVG(col) > N, etc.) MUST go in HAVING, not WHERE.\n"
         prompt += "Output ONLY the SQL query:\n"
         
         sql = self._generate_with_llm(

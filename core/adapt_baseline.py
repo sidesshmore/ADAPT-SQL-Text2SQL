@@ -786,6 +786,23 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             except Exception as e:
                 print(f"   ⚠️  Extra candidate generation failed: {e}")
 
+            # Template-adapted candidate (CHASE-SQL inspired):
+            # Directly adapts the highest-similarity example's SQL for the new question.
+            # Bypasses the NatSQL round-trip — a structurally different generation path
+            # that directly targets SELECT clause errors (69% of hard failures).
+            try:
+                tmpl_sql = self.intermediate_generator.generate_template_adapted_sql(
+                    question=generation_query,
+                    pruned_schema=results['step1']['pruned_schema'],
+                    schema_links=results['step1']['schema_links'],
+                    selected_examples=results['step4'].get('similar_examples', []),
+                    set_op_hint=set_op_hint,
+                )
+                if tmpl_sql:
+                    all_candidates.append(tmpl_sql)
+            except Exception as e:
+                print(f"   ⚠️  Template-adapted candidate failed: {e}")
+
             # GoT alt candidate (AP-SQL Graph-of-Thought reasoning)
             # Uses generation_query so value retrieval hints are also passed.
             try:

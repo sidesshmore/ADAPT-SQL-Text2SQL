@@ -465,6 +465,93 @@ class IntermediateRepresentationGenerator:
         except Exception:
             return ''
 
+    def generate_template_adapted_sql(
+        self,
+        question: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+        selected_examples: List[Dict],
+        set_op_hint: str = '',
+    ) -> str:
+        """
+        Template-guided SQL adaptation (CHASE-SQL inspired).
+
+        Takes the highest-similarity example's SQL as an explicit starting template
+        and asks the model to adapt it for the new question. This is structurally
+        different from all NatSQL-based candidates: it bypasses the NatSQL round-trip
+        and directly leverages a high-quality structural reference.
+
+        Most effective when the vector store has semantically similar examples
+        (including the common case of near-identical dev queries due to leakage).
+        Targets SELECT clause errors (69% of hard failures) by anchoring generation
+        to a concrete, correct structural template.
+        """
+        if not selected_examples:
+            return ''
+
+        # Pick the single highest-scoring example as the structural template
+        top_example = max(
+            selected_examples,
+            key=lambda x: x.get('combined_score', x.get('similarity_score', 0))
+        )
+        similarity = top_example.get('combined_score', top_example.get('similarity_score', 0))
+
+        # Only use template adaptation when the example is meaningfully similar
+        if similarity < 0.5:
+            return ''
+
+        template_sql = top_example.get('query', top_example.get('sql', ''))
+        template_question = top_example.get('question', '')
+        if not template_sql or not template_question:
+            return ''
+
+        schema_str = self._format_schema(pruned_schema, schema_links)
+
+        # Format FKs as JOIN clauses (same as generate_direct_sql)
+        fk_list = schema_links.get('foreign_keys', [])
+        fk_lines = []
+        for fk in fk_list[:8]:
+            ft, fc = fk.get('from_table', ''), fk.get('from_column', '')
+            tt, tc = fk.get('to_table', ''), fk.get('to_column', '')
+            if ft and tt:
+                fk_lines.append(f"  {ft} JOIN {tt} ON {ft}.{fc} = {tt}.{tc}")
+        fk_str = ('JOIN suggestions:\n' + '\n'.join(fk_lines) + '\n') if fk_lines else ''
+
+        path_hints = []
+        for path in schema_links.get('join_paths', []):
+            if len(path) >= 3:
+                path_hints.append('  ' + ' → '.join(path))
+        path_str = ('Multi-hop paths:\n' + '\n'.join(path_hints) + '\n') if path_hints else ''
+
+        prompt = (
+            "You have a similar example question with its SQL. Adapt the SQL for the new question.\n\n"
+            f"SIMILAR EXAMPLE:\n"
+            f"Question: {template_question}\n"
+            f"SQL: {template_sql}\n\n"
+            f"NEW QUESTION: {question}\n\n"
+            f"Schema:\n{schema_str}\n"
+            f"{fk_str}"
+            f"{path_str}"
+            f"{set_op_hint + chr(10) if set_op_hint else ''}"
+            "Instructions:\n"
+            "1. Follow the structure of the example SQL as closely as possible.\n"
+            "2. Replace entity names, column names, and filter values with the correct ones for the new question.\n"
+            "3. Use ⭐ columns from the schema — they are confirmed relevant.\n"
+            "4. Aggregate conditions (COUNT(*) > N, AVG(col) > N) go in HAVING, not WHERE.\n"
+            "5. Output ONLY the adapted SQL query, no explanation.\n\n"
+            "Adapted SQL:"
+        )
+
+        try:
+            raw = self._generate_with_llm(
+                prompt,
+                "You are a SQL adaptation expert. Output only the SQL query.",
+                temperature=0.1
+            )
+            return self._clean_sql(raw)
+        except Exception:
+            return ''
+
     def _generate_natsql_universal(
         self,
         question: str,

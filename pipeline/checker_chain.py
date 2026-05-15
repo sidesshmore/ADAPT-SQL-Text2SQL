@@ -40,6 +40,8 @@ class CheckerChain:
         question: str = ''
     ) -> Dict:
         """Run all 7 checkers in order. Return on first failure."""
+        # Store question so _check_empty_result can apply the negation guard
+        self.schema_links['question'] = question
         checkers = [
             self._check_syntax,
             self._check_select_star,
@@ -115,13 +117,14 @@ class CheckerChain:
     # ------------------------------------------------------------------
 
     def _check_maxmin(self, sql: str) -> Tuple[bool, str]:
-        """Check common MAX/MIN misuse patterns."""
+        """Check aggregation misuse: non-aggregated column alongside MAX/MIN/SUM/AVG without GROUP BY."""
         sql_upper = sql.upper()
-        has_maxmin = bool(re.search(r'\b(MAX|MIN)\s*\(', sql_upper))
-        if not has_maxmin:
+        # Trigger on MAX/MIN/SUM/AVG — not COUNT alone since SELECT COUNT(*) FROM t is valid.
+        has_agg = bool(re.search(r'\b(MAX|MIN|SUM|AVG)\s*\(', sql_upper))
+        if not has_agg:
             return True, ''
 
-        # Pattern: SELECT col, MAX(other) without GROUP BY — likely missing GROUP BY
+        # Pattern: SELECT col, AGG(other) without GROUP BY — likely missing GROUP BY
         select_part = re.search(r'SELECT\s+(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL)
         if select_part:
             cols_in_select = [c.strip() for c in select_part.group(1).split(',')]
@@ -134,8 +137,8 @@ class CheckerChain:
             has_group_by = bool(re.search(r'\bGROUP\s+BY\b', sql, re.IGNORECASE))
             if non_agg and not has_group_by:
                 return False, (
-                    "The SQL selects both a non-aggregated column and MAX/MIN without GROUP BY. "
-                    "Either add GROUP BY for the non-aggregated column, "
+                    "The SQL selects both a non-aggregated column and an aggregation (MAX/MIN/SUM/AVG) "
+                    "without GROUP BY. Either add GROUP BY for the non-aggregated column, "
                     "or rewrite as a subquery / ORDER BY ... LIMIT 1 pattern. "
                     "Output only the corrected SQL."
                 )
@@ -248,6 +251,12 @@ class CheckerChain:
     # Checker 7: Empty result guard
     # ------------------------------------------------------------------
 
+    # Negation signals: questions where 0 rows may be the correct answer.
+    _NEGATION_SIGNALS = [
+        ' never ', ' no ', " n't ", ' not ', ' without ', ' none ',
+        ' zero ', ' except ', ' exclud', ' neither ', ' nor ', ' absent ',
+    ]
+
     def _check_empty_result(
         self,
         sql: str,
@@ -256,6 +265,11 @@ class CheckerChain:
     ) -> Tuple[bool, str]:
         """Execute SQL; if it returns 0 rows on a non-negation question, flag it."""
         if not db_path or not db_manager:
+            return True, ''
+
+        # Don't flag 0 rows for questions that may legitimately expect an empty result
+        q = ' ' + self.schema_links.get('question', '').lower() + ' '
+        if any(sig in q for sig in self._NEGATION_SIGNALS):
             return True, ''
 
         try:

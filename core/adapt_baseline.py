@@ -760,6 +760,20 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                         intermediate_generator=self.intermediate_generator,
                         n=1,
                     )
+                    # Direct SQL candidate for NESTED as well — subquery decomposition
+                    # can fail systematically; direct generation gives a simpler fallback.
+                    try:
+                        direct_sql_nested = self.intermediate_generator.generate_direct_sql(
+                            question=generation_query,
+                            pruned_schema=results['step1']['pruned_schema'],
+                            schema_links=results['step1']['schema_links'],
+                            selected_examples=results['step4'].get('similar_examples', []),
+                            set_op_hint=set_op_hint,
+                        )
+                        if direct_sql_nested:
+                            extra.append(direct_sql_nested)
+                    except Exception:
+                        pass
                 all_candidates.extend(c for c in extra if c)
             except Exception as e:
                 print(f"   ⚠️  Extra candidate generation failed: {e}")

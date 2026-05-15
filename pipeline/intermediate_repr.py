@@ -323,10 +323,16 @@ class IntermediateRepresentationGenerator:
         schema_str = self._format_schema(pruned_schema, schema_links)
         fk_str = ''
         if schema_links.get('foreign_keys'):
-            pairs = [f"{fk.get('from_table','')}.{fk.get('from_column','')} = "
-                     f"{fk.get('to_table','')}.{fk.get('to_column','')}"
-                     for fk in schema_links['foreign_keys'][:5]]
-            fk_str = 'Foreign keys: ' + ', '.join(pairs)
+            join_clauses = [
+                f"{fk.get('from_table','')}.{fk.get('from_column','')} = "
+                f"{fk.get('to_table','')}.{fk.get('to_column','')}"
+                for fk in schema_links['foreign_keys'][:6]
+            ]
+            fk_str = 'Foreign keys: ' + ', '.join(join_clauses)
+            # Add multi-hop paths for 3+ table queries
+            path_strs = [' → '.join(p) for p in schema_links.get('join_paths', []) if len(p) >= 3]
+            if path_strs:
+                fk_str += '\nJoin paths: ' + '; '.join(path_strs)
 
         # Phase 1: skeleton generation
         skeleton_system = (
@@ -406,13 +412,22 @@ class IntermediateRepresentationGenerator:
         """
         schema_str = self._format_schema(pruned_schema, schema_links)
 
+        # Format FKs as ready-to-use JOIN clauses (more actionable than bare column pairs)
+        fk_list = schema_links.get('foreign_keys', [])
         fk_lines = []
-        for fk in schema_links.get('foreign_keys', [])[:6]:
-            fk_lines.append(
-                f"  {fk.get('from_table','')}.{fk.get('from_column','')} "
-                f"= {fk.get('to_table','')}.{fk.get('to_column','')}"
-            )
-        fk_str = ('Foreign keys:\n' + '\n'.join(fk_lines)) if fk_lines else ''
+        for fk in fk_list[:8]:
+            ft, fc = fk.get('from_table', ''), fk.get('from_column', '')
+            tt, tc = fk.get('to_table', ''), fk.get('to_column', '')
+            if ft and tt:
+                fk_lines.append(f"  {ft} JOIN {tt} ON {ft}.{fc} = {tt}.{tc}")
+        fk_str = ('JOIN suggestions:\n' + '\n'.join(fk_lines)) if fk_lines else ''
+
+        # Multi-hop path hints (e.g., A → B → C for 3-table joins)
+        path_hints = []
+        for path in schema_links.get('join_paths', []):
+            if len(path) >= 3:
+                path_hints.append('  ' + ' → '.join(path))
+        path_str = ('Multi-hop paths:\n' + '\n'.join(path_hints)) if path_hints else ''
 
         best = self._select_best_examples(selected_examples, n=4)
         examples_str = ''
@@ -425,13 +440,14 @@ class IntermediateRepresentationGenerator:
         prompt = (
             f"Write a SQL query for the following question.\n\n"
             f"Schema:\n{schema_str}\n"
-            f"{fk_str}\n\n"
+            f"{fk_str}\n"
+            f"{path_str + chr(10) if path_str else ''}\n"
             f"Examples:\n{examples_str}"
             f"{set_op_hint + chr(10) if set_op_hint else ''}"
             f"Question: {question}\n\n"
             "Rules:\n"
             "1. Use only tables/columns from the schema above.\n"
-            "2. Join tables via their foreign keys.\n"
+            "2. Join tables using the JOIN suggestions above (follow multi-hop paths for 3+ tables).\n"
             "3. Aggregate conditions (COUNT(*) > N, AVG(col) > N, etc.) go in HAVING, not WHERE.\n"
             "4. Output ONLY the SQL query, no explanation.\n\n"
             "SQL:"
@@ -673,11 +689,19 @@ Examples:
         prompt += self._format_schema(pruned_schema, schema_links)
         prompt += "\n"
         
-        # Add foreign keys
+        # Add foreign keys as JOIN suggestions
         if schema_links.get('foreign_keys'):
-            prompt += "## Foreign Key Relationships\n\n"
+            prompt += "## JOIN Suggestions (use these exact conditions)\n\n"
             for fk in schema_links['foreign_keys']:
-                prompt += f"- {fk['from_table']}.{fk['from_column']} → {fk['to_table']}.{fk['to_column']}\n"
+                ft, fc = fk['from_table'], fk['from_column']
+                tt, tc = fk['to_table'], fk['to_column']
+                prompt += f"- {ft} JOIN {tt} ON {ft}.{fc} = {tt}.{tc}\n"
+            # Multi-hop paths
+            paths = [p for p in schema_links.get('join_paths', []) if len(p) >= 3]
+            if paths:
+                prompt += "\nMulti-hop join paths:\n"
+                for p in paths:
+                    prompt += f"- " + " → ".join(p) + "\n"
             prompt += "\n"
         
         # Add examples

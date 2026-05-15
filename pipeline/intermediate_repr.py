@@ -446,7 +446,7 @@ class IntermediateRepresentationGenerator:
             f"{set_op_hint + chr(10) if set_op_hint else ''}"
             f"Question: {question}\n\n"
             "Rules:\n"
-            "1. Use only tables/columns from the schema above.\n"
+            "1. Use only tables/columns from the schema above (⭐ columns are confirmed relevant — prefer them).\n"
             "2. Join tables using the JOIN suggestions above (follow multi-hop paths for 3+ tables).\n"
             "3. Aggregate conditions (COUNT(*) > N, AVG(col) > N, etc.) go in HAVING, not WHERE.\n"
             "4. Output ONLY the SQL query, no explanation.\n\n"
@@ -720,6 +720,7 @@ Examples:
             prompt += f"Original question: {original_question}\n\n"
         prompt += f"NatSQL:\n{natsql}\n\n"
         prompt += "Convert to normalized SQL following the rules and ground truth patterns above.\n"
+        prompt += "IMPORTANT: Prefer ⭐ columns from the schema — they are confirmed relevant to this question.\n"
         if original_question:
             prompt += "CRITICAL: Before outputting, verify every filter condition from the original question appears in WHERE/HAVING.\n"
         prompt += "CRITICAL SQL RULE: Aggregate conditions (COUNT(*) > N, SUM(col) > N, AVG(col) > N, etc.) MUST go in HAVING, not WHERE.\n"

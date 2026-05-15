@@ -23,7 +23,7 @@ START=${STARTS[$SLURM_ARRAY_TASK_ID]}
 NUM=${NUMS[$SLURM_ARRAY_TASK_ID]}
 RANGE="${START}_$((START + NUM - 1))"
 
-CHECKPOINT_DIR=$SCRATCH/eval_results_sota_q3f/range_$RANGE
+CHECKPOINT_DIR=$SCRATCH/eval_results_sota_q3g/range_$RANGE
 OLLAMA_PORT=$((11437 + SLURM_ARRAY_TASK_ID))   # 11437–11444
 
 echo "[$(date)] eval-sota job array_id=$SLURM_ARRAY_TASK_ID range=$START+$NUM port=$OLLAMA_PORT"
@@ -49,7 +49,7 @@ sleep 20  # wait for server to be ready
 python $PROJECT/finetune/eval_batch.py \
     --start $START \
     --num $NUM \
-    --model qwen3-coder \
+    --model qwen2.5-coder:32b \
     --ollama_host http://127.0.0.1:$OLLAMA_PORT \
     --checkpoint_dir $CHECKPOINT_DIR \
     --project_dir $PROJECT

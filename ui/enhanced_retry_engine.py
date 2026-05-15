@@ -101,6 +101,9 @@ class EnhancedRetryEngine:
             should_retry, feedback_context = self._evaluate_result_research_based(
                 result, gold_sql
             )
+            # Attach attempt number so _enhance_query_with_feedback can vary strategy
+            if feedback_context:
+                feedback_context['attempt_number'] = attempt + 1
             
             if not should_retry:
                 print(f"\n{'✅'*35}")
@@ -297,6 +300,16 @@ class EnhancedRetryEngine:
                 f"Fix these errors: {', '.join(error_types)}"
             )
         
+        # On 2nd+ retry, add cross-strategy structural diversity hint
+        attempt_num = feedback_context.get('attempt_number', 1)
+        if attempt_num >= 2:
+            hints.append(
+                "STRUCTURAL CHANGE REQUIRED: Your previous SQL structure was wrong. "
+                "Try a completely different approach — if you used JOINs, try subqueries; "
+                "if you used subqueries, try JOINs with GROUP BY; "
+                "reconsider which tables are truly needed."
+            )
+
         # Create enhanced query
         enhanced = original_query
         if hints:
@@ -304,7 +317,7 @@ class EnhancedRetryEngine:
                 f"{original_query}\n\n"
                 f"[RETRY HINTS: {'; '.join(hints)}]"
             )
-        
+
         return enhanced
     
     def _select_best_attempt_research_based(self, attempt_history: List[Dict]) -> Dict:

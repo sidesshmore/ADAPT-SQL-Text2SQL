@@ -49,6 +49,7 @@ from pipeline.checker_chain import CheckerChain
 from pipeline.python_pivot import PythonPivot
 from pipeline.set_op_detector import SetOpDetector
 from pipeline.candidate_selector import CandidateSelector
+from utils.value_retrieval import retrieve_db_values
 
 
 class ADAPTBaseline:
@@ -259,6 +260,22 @@ class ADAPTBaseline:
             python_hint=python_hint
         )
     
+    @staticmethod
+    def _result_shape_issue(sql: str, exec_result: dict) -> str:
+        """Return a description of the result shape issue if the result is implausible, else ''."""
+        if not exec_result or not exec_result.get('success'):
+            return ''
+        rows = exec_result.get('result_rows', [])
+        row_count = len(rows)
+        sql_upper = sql.upper()
+        has_agg = any(f in sql_upper for f in ['COUNT(', 'SUM(', 'AVG(', 'MAX(', 'MIN('])
+        has_group = 'GROUP BY' in sql_upper
+        if has_agg and not has_group and row_count > 1:
+            return f"aggregation without GROUP BY returned {row_count} rows (expected 1)"
+        if 'LIMIT 1' in sql_upper and row_count > 1:
+            return f"LIMIT 1 returned {row_count} rows"
+        return ''
+
     @staticmethod
     def _is_negation_query(question: str) -> bool:
         """Return True if the question likely expects 0 rows (negation/exclusion intent)."""
@@ -560,11 +577,29 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             print(f"\n   [B] Set-op detected — injecting hint into generation prompt")
         results['set_op_detected'] = bool(set_op_hint)
 
+        # Value retrieval: look up actual DB values for WHERE clause anchoring
+        value_matches = {}
+        generation_query = natural_query
+        if db_path and enable_execution:
+            try:
+                value_matches = retrieve_db_values(
+                    natural_query, results['step1']['pruned_schema'], db_path
+                )
+                if value_matches:
+                    value_hint_str = "Note — verified DB values: " + "; ".join(
+                        f"{k}='{v}'" for k, v in value_matches.items()
+                    )
+                    generation_query = f"{natural_query}\n[{value_hint_str}]"
+                    print(f"   [Val] DB value hints injected: {list(value_matches.keys())}")
+            except Exception as e:
+                print(f"   [Val] Value retrieval skipped: {e}")
+        results['value_matches'] = value_matches
+
         strategy = step5_result['strategy']
 
         if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
             step6a_result = self.run_step6a_few_shot_generation(
-                natural_query,
+                generation_query,
                 results['step1'],
                 results['step4'],
                 set_op_hint=set_op_hint
@@ -574,7 +609,7 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
 
         elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
             step6b_result = self.run_step6b_intermediate_generation(
-                natural_query,
+                generation_query,
                 results['step1'],
                 results['step4'],
                 set_op_hint=set_op_hint
@@ -599,7 +634,7 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                 else:
                     print("   [G'] Oracle hint unavailable — continuing without hint")
             step6c_result = self.run_step6c_decomposed_generation(
-                natural_query,
+                generation_query,
                 results['step1'],
                 results['step2'],
                 results['step4'],
@@ -615,73 +650,96 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
         if generated_sql and self._is_sql_truncated(generated_sql):
             print("   ⚠️  Generated SQL appears truncated — retrying generation once")
             if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
-                r6 = self.run_step6a_few_shot_generation(natural_query, results['step1'], results['step4'], set_op_hint=set_op_hint)
+                r6 = self.run_step6a_few_shot_generation(generation_query, results['step1'], results['step4'], set_op_hint=set_op_hint)
                 generated_sql = r6['generated_sql']
                 results['step6a'] = r6
             elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
-                r6 = self.run_step6b_intermediate_generation(natural_query, results['step1'], results['step4'], set_op_hint=set_op_hint)
+                r6 = self.run_step6b_intermediate_generation(generation_query, results['step1'], results['step4'], set_op_hint=set_op_hint)
                 generated_sql = r6['generated_sql']
                 results['step6b'] = r6
             elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
-                r6 = self.run_step6c_decomposed_generation(natural_query, results['step1'], results['step2'], results['step4'], python_hint=python_hint)
+                r6 = self.run_step6c_decomposed_generation(generation_query, results['step1'], results['step2'], results['step4'], python_hint=python_hint)
                 generated_sql = r6['generated_sql']
                 results['step6c'] = r6
 
-        # GoT alt-candidate: generate a structurally diverse SQL via Graph-of-Thought,
-        # select it only when primary returns 0 rows but alt returns results, or primary
-        # fails plausibility while alt passes. (AP-SQL GoT approach, restored from fix-4.)
+        # Multi-candidate selection (XiYan-SQL / DeepEye-SQL approach):
+        # Generate temperature-diverse candidates + GoT alt, then use CandidateSelector
+        # to pick the winner by execution-based majority voting.
         results['multi_candidate'] = None
         if enable_multi_candidate and generated_sql and db_path:
             print("\n" + "="*70)
-            print("STEP 6 (ALT): MULTI-CANDIDATE GENERATION")
+            print("STEP 6 (ALT): MULTI-CANDIDATE SELECTION")
             print("="*70 + "\n")
 
-            alt_sql = self._generate_alternative_candidate(
-                question=natural_query,
-                pruned_schema=results['step1']['pruned_schema'],
-                schema_links=results['step1']['schema_links'],
-                strategy_value=strategy.value,
-                selected_examples=results['step4'].get('similar_examples', [])
-            )
-            if alt_sql:
-                primary_exec = self.db_manager.execute_query(generated_sql, db_path)
-                alt_exec = self.db_manager.execute_query(alt_sql, db_path)
+            all_candidates = [generated_sql]
 
-                primary_rows = len(primary_exec.get('result_rows', [])) if primary_exec.get('success') else -1
-                alt_rows = len(alt_exec.get('result_rows', [])) if alt_exec.get('success') else -1
+            # Temperature-diverse candidate at temp=0.4 (same strategy, different seed)
+            try:
+                extra = []
+                if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
+                    extra = self.few_shot_generator.generate_candidates(
+                        question=generation_query,
+                        pruned_schema=results['step1']['pruned_schema'],
+                        schema_links=results['step1']['schema_links'],
+                        selected_examples=results['step4'].get('similar_examples', []),
+                        n=1,
+                        set_op_hint=set_op_hint,
+                    )
+                elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
+                    extra = self.intermediate_generator.generate_candidates(
+                        question=generation_query,
+                        pruned_schema=results['step1']['pruned_schema'],
+                        schema_links=results['step1']['schema_links'],
+                        selected_examples=results['step4'].get('similar_examples', []),
+                        n=1,
+                        set_op_hint=set_op_hint,
+                    )
+                elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
+                    extra = self.decomposed_generator.generate_candidates(
+                        question=generation_query,
+                        pruned_schema=results['step1']['pruned_schema'],
+                        schema_links=results['step1']['schema_links'],
+                        sub_questions=results['step2'].get('sub_questions', []),
+                        selected_examples=results['step4'].get('similar_examples', []),
+                        few_shot_generator=self.few_shot_generator,
+                        intermediate_generator=self.intermediate_generator,
+                        n=1,
+                    )
+                all_candidates.extend(c for c in extra if c)
+            except Exception as e:
+                print(f"   ⚠️  Extra candidate generation failed: {e}")
 
-                primary_plaus = primary_exec.get('plausibility_check') or {}
-                alt_plaus = alt_exec.get('plausibility_check') or {}
-                primary_plausible = primary_plaus.get('plausible', True)
-                alt_plausible = alt_plaus.get('plausible', True)
+            # GoT alt candidate (AP-SQL Graph-of-Thought reasoning)
+            try:
+                got_sql = self._generate_alternative_candidate(
+                    question=natural_query,
+                    pruned_schema=results['step1']['pruned_schema'],
+                    schema_links=results['step1']['schema_links'],
+                    strategy_value=strategy.value,
+                    selected_examples=results['step4'].get('similar_examples', []),
+                )
+                if got_sql:
+                    all_candidates.append(got_sql)
+            except Exception as e:
+                print(f"   ⚠️  GoT candidate generation failed: {e}")
 
-                use_alt = False
-                reason = ""
-                if primary_rows == 0 and alt_rows > 0:
-                    use_alt = True
-                    reason = f"{alt_rows} rows vs 0 for primary"
-                elif not primary_plausible and alt_plausible and alt_rows > 0:
-                    use_alt = True
-                    reason = f"primary failed plausibility ({primary_plaus.get('issue', '?')}), alt passed"
+            print(f"   Candidates generated: {len(all_candidates)}")
 
-                if use_alt:
-                    print(f"   ✅ Alternative candidate selected ({reason})")
-                    generated_sql = alt_sql
-                else:
-                    print(f"   Primary candidate kept ({primary_rows} rows vs {alt_rows} for alternative)")
-
+            # Execute all candidates and select winner by majority result-set agreement
+            if len(all_candidates) > 1:
+                sel = self.candidate_selector.select(all_candidates, db_path)
+                winner_sql = sel['winner_sql']
+                winner_idx = sel['winner_index']
+                print(f"   Winner: idx={winner_idx} ({sel['winner_reason']})")
+                if winner_sql:
+                    generated_sql = winner_sql
                 results['multi_candidate'] = {
-                    'primary_sql': results.get('final_sql', generated_sql),
-                    'alt_sql': alt_sql,
-                    'primary_rows': primary_rows,
-                    'alt_rows': alt_rows,
-                    'winner': 'alt' if use_alt else 'primary',
-                    'winner_index': 1 if use_alt else 0,
-                    'winner_reason': reason if use_alt else 'primary_rows_ok',
-                    'n_candidates': 2,
+                    **sel,
+                    'n_candidates': len(all_candidates),
+                    'primary_sql': all_candidates[0],
                 }
             else:
-                print("   ⚠️  Alternative candidate generation skipped (empty output)")
+                print("   ⚠️  Only 1 candidate — multi-candidate skipped")
 
         # Step 6.5: SQL Normalization (if enabled)
         if self.enable_sql_normalization and generated_sql:
@@ -843,6 +901,29 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                 results['plausibility_retry'] = plausibility_retry
                 if plausibility_retry.get('sql_changed'):
                     final_sql = plausibility_retry['final_sql']
+                    results['final_sql'] = final_sql
+                    results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
+
+            # Result shape retry: fix queries where SQL structure contradicts result shape
+            # (e.g. aggregation without GROUP BY returning multiple rows, LIMIT 1 returning many)
+            results['shape_retry'] = None
+            exec_for_shape = results['step10_generated']
+            shape_issue = self._result_shape_issue(final_sql, exec_for_shape) if exec_for_shape else ''
+            if enable_execution_retry and shape_issue:
+                print(f"   [Shape] Issue detected: {shape_issue} — retrying")
+                shape_retry = self.retry_engine.retry_with_plausibility_feedback(
+                    question=natural_query,
+                    pruned_schema=results['step1']['pruned_schema'],
+                    schema_links=results['step1']['schema_links'],
+                    current_sql=final_sql,
+                    generation_strategy=strategy.value,
+                    plausibility_issue=shape_issue,
+                    db_path=db_path,
+                    db_manager=self.db_manager
+                )
+                results['shape_retry'] = shape_retry
+                if shape_retry.get('sql_changed'):
+                    final_sql = shape_retry['final_sql']
                     results['final_sql'] = final_sql
                     results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
 

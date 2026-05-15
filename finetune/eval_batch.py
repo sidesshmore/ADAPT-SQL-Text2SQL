@@ -106,6 +106,9 @@ def main():
         vector_store_path=str(project_dir / "vector_store"),
     )
 
+    from ui.enhanced_retry_engine import EnhancedRetryEngine
+    retry_engine = EnhancedRetryEngine(model=args.model, max_full_retries=2)
+
     # Resume from latest checkpoint if one exists
     results = []
     processed = set()
@@ -137,19 +140,17 @@ def main():
             continue
 
         try:
-            result = adapt.run_full_pipeline(
-                example["question"],
-                schema_dict,
-                foreign_keys,
+            retry_output = retry_engine.run_with_full_retry(
+                adapt_baseline=adapt,
+                natural_query=example["question"],
+                schema_dict=schema_dict,
+                foreign_keys=foreign_keys,
                 k_examples=10,
-                enable_retry=True,
                 db_path=str(db_path),
                 gold_sql=example.get("query"),
-                enable_execution=True,
-                enable_evaluation=True,
-                enable_multi_candidate=True,
             )
-            results.append({"index": i, "example": example, "result": result, "retry_result": None})
+            result = retry_output["final_result"]
+            results.append({"index": i, "example": example, "result": result, "retry_result": retry_output})
             processed.add(i)
 
             n = len(results)

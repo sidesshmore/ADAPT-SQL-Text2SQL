@@ -141,7 +141,7 @@ def main():
                 example["question"],
                 schema_dict,
                 foreign_keys,
-                k_examples=3,
+                k_examples=10,
                 enable_retry=True,
                 db_path=str(db_path),
                 gold_sql=example.get("query"),

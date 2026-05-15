@@ -378,9 +378,10 @@ Table Relationship Graph:
 Reasoning steps:
 STEP 0 — Traverse the graph: Which tables are needed? Which FK edges connect them?
 STEP 1 — Output: What columns appear in SELECT? Is aggregation (COUNT/SUM/AVG/MAX/MIN) needed?
-STEP 2 — Filters: What goes in WHERE or HAVING?
+STEP 2 — Filters: What goes in WHERE or HAVING? (Aggregate conditions like COUNT(*) > N go in HAVING, not WHERE.)
 STEP 3 — Write the SQL using the join path identified in STEP 0.
 
+IMPORTANT: Prefer ⭐ columns from the schema — they are confirmed relevant.
 Output ONLY the final SQL query (no explanation, no markdown):"""
 
         try:
@@ -779,9 +780,10 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                 print(f"   ⚠️  Extra candidate generation failed: {e}")
 
             # GoT alt candidate (AP-SQL Graph-of-Thought reasoning)
+            # Uses generation_query so value retrieval hints are also passed.
             try:
                 got_sql = self._generate_alternative_candidate(
-                    question=natural_query,
+                    question=generation_query,
                     pruned_schema=results['step1']['pruned_schema'],
                     schema_links=results['step1']['schema_links'],
                     strategy_value=strategy.value,

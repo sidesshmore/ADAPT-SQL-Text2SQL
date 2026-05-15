@@ -84,8 +84,14 @@ def retrieve_db_values(
                         dv_lower = dv.lower()
                         if term_lower == dv_lower:
                             continue  # exact match — model will get it right anyway
+                        # Containment: "France" matches "South France" or "france_region"
+                        is_contained = (
+                            len(term_lower) >= 3 and (
+                                term_lower in dv_lower or dv_lower in term_lower
+                            )
+                        )
                         score = SequenceMatcher(None, term_lower, dv_lower).ratio()
-                        if score >= min_similarity:
+                        if score >= min_similarity or is_contained:
                             # Prefer longer match (more specific) if multiple candidates
                             if fqn not in matches or len(dv) > len(matches[fqn]):
                                 matches[fqn] = dv

@@ -700,6 +700,13 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
 
             all_candidates = [generated_sql]
 
+            # Preliminary SQL from step 3 — free additional candidate (zero LLM calls).
+            # Uses a simpler generation path than step 6 generators; provides diversity
+            # when the primary candidate has systematic NatSQL errors.
+            prel_sql = results.get('step3', {}).get('predicted_sql', '').strip()
+            if prel_sql and prel_sql.upper().startswith('SELECT') and prel_sql != generated_sql:
+                all_candidates.append(prel_sql)
+
             # Temperature-diverse candidate at temp=0.4 (same strategy, different seed)
             try:
                 extra = []

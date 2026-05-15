@@ -16,15 +16,24 @@ class SetOpDetector:
         'which are not', 'not in common', 'who never', 'that never',
         'have not', 'has not', 'do not have', 'does not have',
         'without any', 'minus',
+        # Additional Spider EXCEPT patterns
+        "haven't", "hasn't",
+        'never been', 'never had', 'never taught', 'never attended',
+        'who did not', 'that did not', 'which did not',
+        'not among', 'absent from',
     ]
     INTERSECT_SIGNALS = [
         'who are also', 'that are also', 'which are also',
         'in common', 'shared between', 'appear in both',
         'at the same time', 'simultaneously',
+        # Additional Spider INTERSECT patterns
+        'who has both', 'appear in all', 'member of both',
     ]
     UNION_SIGNALS = [
         'combined with', 'together with', 'as well as',
         'or both', 'either or',
+        # Additional Spider UNION patterns (kept narrow to avoid false positives)
+        'or those who', 'or all those', 'union of',
     ]
 
     def detect(self, question: str) -> dict:

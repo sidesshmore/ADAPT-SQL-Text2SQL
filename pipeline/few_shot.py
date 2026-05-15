@@ -115,6 +115,8 @@ class FewShotGenerator:
                     question, pruned_schema, schema_links, best_examples,
                     set_op_hint=set_op_hint, temperature=temp
                 )
+                if natsql.strip().startswith('--'):
+                    continue  # NatSQL generation failed
                 sql = self._natsql_to_sql(natsql, pruned_schema, schema_links, best_examples)
                 candidates.append(self._clean_sql(sql))
             except Exception:

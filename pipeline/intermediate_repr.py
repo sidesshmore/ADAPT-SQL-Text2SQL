@@ -294,6 +294,9 @@ class IntermediateRepresentationGenerator:
                     question, pruned_schema, schema_links, best_examples, gt_patterns,
                     set_op_hint=set_op_hint, temperature=temp
                 )
+                # Skip if NatSQL generation failed (returns error comment)
+                if natsql_result['natsql'].strip().startswith('--'):
+                    continue
                 sql = self._natsql_to_normalized_sql(
                     natsql_result['natsql'], natsql_result['structure'],
                     pruned_schema, schema_links, best_examples, gt_patterns,

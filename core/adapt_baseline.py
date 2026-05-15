@@ -261,6 +261,32 @@ class ADAPTBaseline:
         )
     
     @staticmethod
+    def _make_distinct_variant(sql: str) -> str:
+        """Return a DISTINCT version of the SQL (for SELECT or COUNT).
+        Returns empty string if the SQL already has DISTINCT or if transformation is unclear."""
+        import re as _re
+        sql_stripped = sql.strip().rstrip(';')
+        sql_upper = sql_stripped.upper()
+        if 'DISTINCT' in sql_upper:
+            return ''  # already has DISTINCT
+        # COUNT(col) → COUNT(DISTINCT col)  (not COUNT(*))
+        count_match = _re.search(r'COUNT\s*\(\s*(?!\*)(\w+)\s*\)', sql_stripped, _re.IGNORECASE)
+        if count_match:
+            return _re.sub(
+                r'COUNT\s*\(\s*(?!\*)(\w+)\s*\)',
+                lambda m: f'COUNT(DISTINCT {m.group(1)})',
+                sql_stripped, count=1, flags=_re.IGNORECASE
+            ) + ';'
+        # SELECT col FROM ... → SELECT DISTINCT col FROM ...
+        # but skip if there's an aggregation (COUNT/SUM/AVG/MAX/MIN) — DISTINCT on agg is wrong
+        has_agg = bool(_re.search(r'\b(COUNT|SUM|AVG|MAX|MIN)\s*\(', sql_upper))
+        if not has_agg:
+            select_match = _re.match(r'^(SELECT\s+)', sql_stripped, _re.IGNORECASE)
+            if select_match:
+                return select_match.group(1) + 'DISTINCT ' + sql_stripped[len(select_match.group(1)):] + ';'
+        return ''
+
+    @staticmethod
     def _result_shape_issue(sql: str, exec_result: dict) -> str:
         """Return a description of the result shape issue if the result is implausible, else ''."""
         if not exec_result or not exec_result.get('success'):
@@ -736,6 +762,17 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                     all_candidates.append(got_sql)
             except Exception as e:
                 print(f"   ⚠️  GoT candidate generation failed: {e}")
+
+            # DISTINCT execution-based detection: add a DISTINCT variant when question
+            # signals it may be needed. CandidateSelector picks correct one by execution.
+            # (Replaces keyword-injection F' which caused regressions — this is safe
+            # because it only adds a candidate, never removes the primary.)
+            _DISTINCT_Q = ['different', 'unique', 'distinct', 'how many types',
+                           'how many kinds', 'how many different', 'kind of', 'type of']
+            if any(sig in natural_query.lower() for sig in _DISTINCT_Q) and generated_sql:
+                distinct_sql = self._make_distinct_variant(generated_sql)
+                if distinct_sql and distinct_sql.upper() != generated_sql.upper():
+                    all_candidates.append(distinct_sql)
 
             print(f"   Candidates generated: {len(all_candidates)}")
 

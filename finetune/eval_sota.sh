@@ -45,7 +45,7 @@ sleep 20  # wait for server to be ready
 
 # Run eval using the full SOTA pipeline (Phase B–E: set-op detection,
 # multi-candidate majority vote, schema normalization, skeleton-first NESTED,
-# exec error retry) with qwen3-coder (proven baseline model)
+# exec error retry) with qwen2.5-coder:32b
 python $PROJECT/finetune/eval_batch.py \
     --start $START \
     --num $NUM \

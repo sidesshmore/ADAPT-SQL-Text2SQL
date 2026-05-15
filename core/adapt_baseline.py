@@ -694,6 +694,20 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                         n=1,
                         set_op_hint=set_op_hint,
                     )
+                    # Skeleton-first (RESDSQL-inspired): structure first, entities second
+                    # Directly targets SELECT clause errors (69% of hard failures)
+                    try:
+                        skel_sql = self.intermediate_generator.generate_skeleton_first(
+                            question=generation_query,
+                            pruned_schema=results['step1']['pruned_schema'],
+                            schema_links=results['step1']['schema_links'],
+                            selected_examples=results['step4'].get('similar_examples', []),
+                            set_op_hint=set_op_hint,
+                        )
+                        if skel_sql:
+                            extra.append(skel_sql)
+                    except Exception as _e_sk:
+                        pass
                 elif strategy == GenerationStrategy.DECOMPOSED_GENERATION:
                     extra = self.decomposed_generator.generate_candidates(
                         question=generation_query,

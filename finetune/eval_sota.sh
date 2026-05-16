@@ -23,7 +23,7 @@ START=${STARTS[$SLURM_ARRAY_TASK_ID]}
 NUM=${NUMS[$SLURM_ARRAY_TASK_ID]}
 RANGE="${START}_$((START + NUM - 1))"
 
-CHECKPOINT_DIR=$SCRATCH/eval_results_sota_q3j/range_$RANGE
+CHECKPOINT_DIR=$SCRATCH/eval_results_sota_q3l/range_$RANGE
 OLLAMA_PORT=$((11437 + SLURM_ARRAY_TASK_ID))   # 11437–11444
 
 echo "[$(date)] eval-sota job array_id=$SLURM_ARRAY_TASK_ID range=$START+$NUM port=$OLLAMA_PORT"

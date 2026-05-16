@@ -166,7 +166,16 @@ class EnhancedRetryEngine:
             print(f"Enhanced query with feedback hints")
         else:
             enhanced_query = natural_query
-        
+
+        # Cross-strategy retry: attempt 2 uses skeleton_first, attempt 3 uses direct_sql.
+        # feedback_context['attempt_number'] is the attempt that just FAILED (1-indexed),
+        # so the NEXT attempt number = attempt_number + 1.
+        failed_attempt = feedback_context.get('attempt_number', 0) if feedback_context else 0
+        _strategy_overrides = {2: "skeleton_first", 3: "direct_sql"}
+        generation_strategy_override = _strategy_overrides.get(failed_attempt + 1)
+        if generation_strategy_override:
+            print(f"   [CROSS-STRATEGY] Attempt {failed_attempt + 1} → override={generation_strategy_override}")
+
         # Run full pipeline
         result = adapt_baseline.run_full_pipeline(
             natural_query=enhanced_query,
@@ -179,6 +188,7 @@ class EnhancedRetryEngine:
             enable_execution=True,
             enable_evaluation=(gold_sql is not None),
             enable_multi_candidate=True,
+            generation_strategy_override=generation_strategy_override,
         )
         
         # Store original query

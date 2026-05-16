@@ -2,6 +2,7 @@
 STEP 4: Similarity Search
 Returns similar examples with their questions, SQL queries, and similarity scores
 """
+import re as _re
 from typing import List, Dict
 from utils.vector_store import SQLVectorStore
 
@@ -41,9 +42,23 @@ class DualSimilaritySelector:
         
         # Get similar examples from vector store
         similar_examples = self.vector_store.search(question, k=k, sql_hint=sql_hint)
-        
+
         print(f"✓ Found {len(similar_examples)} similar examples")
-        
+
+        # SAFE-SQL: Reasoning path matching — boost examples whose SQL complexity
+        # signature matches the preliminary SQL (sql_hint from Step 3).
+        # Prevents homogeneous example sets when the question needs GROUP BY/HAVING/etc.
+        if sql_hint and similar_examples:
+            target_sig = self._complexity_signature(sql_hint)
+            if target_sig:
+                for ex in similar_examples:
+                    ex_sig = self._complexity_signature(ex.get('query', ex.get('sql', '')))
+                    overlap = len(target_sig & ex_sig) / len(target_sig)
+                    ex['combined_score'] = (
+                        ex.get('combined_score', ex.get('similarity_score', 0)) + 0.05 * overlap
+                    )
+                similar_examples.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
+
         # Generate reasoning
         reasoning = self._generate_reasoning(
             question, similar_examples, k
@@ -60,6 +75,20 @@ class DualSimilaritySelector:
             'total_found': len(similar_examples)
         }
     
+    @staticmethod
+    def _complexity_signature(sql: str) -> set:
+        """Extract SQL complexity features for SAFE-SQL reasoning path matching."""
+        sql_up = sql.upper()
+        sig = set()
+        if _re.search(r'\b(COUNT|SUM|AVG|MAX|MIN)\s*\(', sql_up): sig.add('AGG')
+        if 'GROUP BY' in sql_up: sig.add('GROUP')
+        if 'HAVING' in sql_up: sig.add('HAVING')
+        if sql_up.count('SELECT') > 1: sig.add('SUBQUERY')
+        if _re.search(r'\b(EXCEPT|UNION|INTERSECT)\b', sql_up): sig.add('SETOP')
+        if 'DISTINCT' in sql_up: sig.add('DISTINCT')
+        if len(_re.findall(r'\bJOIN\b', sql_up)) >= 2: sig.add('MULTI_JOIN')
+        return sig
+
     def _generate_reasoning(
         self,
         question: str,

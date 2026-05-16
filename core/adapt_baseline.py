@@ -5,7 +5,7 @@ Generation + Validation + Retry + Execute + Evaluate
 """
 import os
 import ollama as _ollama_module
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # Patch ollama module-level functions to read OLLAMA_HOST at call time.
 # This is needed because ollama binds its default client at import time,
@@ -311,6 +311,41 @@ class ADAPTBaseline:
             "n't ", " except ", " exclud", " neither ", " nor ",
         ]
         return any(p in q for p in patterns)
+
+    def _repair_candidate(
+        self,
+        sql: str,
+        directive: str,
+        generation_query: str,
+        pruned_schema: Dict[str, List[Dict]],
+        schema_links: Dict,
+    ) -> str:
+        """ExCoT / LitE-SQL: 1 LLM call to fix a candidate using a CheckerChain directive.
+        Called only for candidates that failed a deterministic checker — the directive is
+        specific and actionable (e.g. 'column X not found, use Y')."""
+        schema_str = '\n'.join(
+            f"  {tbl}({', '.join(c['column_name'] for c in cols[:8])})"
+            for tbl, cols in list(pruned_schema.items())[:6]
+        )
+        prompt = (
+            f"Fix the SQL according to the error below. Output ONLY the corrected SQL.\n\n"
+            f"Question: {generation_query}\n"
+            f"Schema:\n{schema_str}\n\n"
+            f"SQL to fix:\n{sql}\n\n"
+            f"Error: {directive}\n\n"
+            f"Corrected SQL:"
+        )
+        try:
+            import re as _re_repair
+            raw = ollama.chat(
+                model=self.model,
+                messages=[{'role': 'user', 'content': prompt}],
+                options={'temperature': 0.0}
+            )['message']['content'].strip()
+            raw = _re_repair.sub(r'```(?:sql)?', '', raw, flags=_re_repair.IGNORECASE).strip().rstrip('`').strip()
+            return raw if raw.upper().startswith('SELECT') else ''
+        except Exception:
+            return ''
 
     def _llm_judge_candidates(
         self,
@@ -628,7 +663,8 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
         enable_execution: bool = False,
         enable_evaluation: bool = False,
         enable_execution_retry: bool = True,
-        enable_multi_candidate: bool = False
+        enable_multi_candidate: bool = False,
+        generation_strategy_override: Optional[str] = None,
     ) -> Dict:
         """
         Run complete ADAPT-SQL pipeline (Steps 1-11)
@@ -698,7 +734,54 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
         strategy = step5_result['strategy']
         natsql_candidate_for_pool = None  # set by INTERMEDIATE_REPRESENTATION branch if template-adapted promoted to primary
 
-        if strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
+        # Cross-strategy retry override (XiYan-SQL / ExCoT): on retry attempts, use a
+        # genuinely different generation path so the LLM can't produce the same wrong SQL.
+        # Attempt 2 → skeleton_first (structure-first, bypasses NatSQL)
+        # Attempt 3 → direct_sql (no NatSQL round-trip, different prompt structure)
+        _override_handled = False
+        if generation_strategy_override:
+            _override_sql = None
+            if (generation_strategy_override == "skeleton_first"
+                    and strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION):
+                try:
+                    _override_sql = self.intermediate_generator.generate_skeleton_first(
+                        question=generation_query,
+                        pruned_schema=results['step1']['pruned_schema'],
+                        schema_links=results['step1']['schema_links'],
+                        selected_examples=results['step4'].get('similar_examples', []),
+                        set_op_hint=set_op_hint,
+                    )
+                except Exception as _oe:
+                    print(f"   ⚠️  skeleton_first override failed: {_oe}")
+            elif generation_strategy_override == "direct_sql" and strategy in (
+                GenerationStrategy.INTERMEDIATE_REPRESENTATION,
+                GenerationStrategy.DECOMPOSED_GENERATION,
+            ):
+                try:
+                    _override_sql = self.intermediate_generator.generate_direct_sql(
+                        question=generation_query,
+                        pruned_schema=results['step1']['pruned_schema'],
+                        schema_links=results['step1']['schema_links'],
+                        selected_examples=results['step4'].get('similar_examples', []),
+                        set_op_hint=set_op_hint,
+                    )
+                except Exception as _oe:
+                    print(f"   ⚠️  direct_sql override failed: {_oe}")
+
+            if _override_sql and _override_sql.upper().strip().startswith('SELECT'):
+                print(f"   [RETRY-OVERRIDE] {generation_strategy_override} primary")
+                key = 'step6b' if strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION else 'step6c'
+                results[key] = {'generated_sql': _override_sql, 'strategy_override': generation_strategy_override}
+                generated_sql = _override_sql
+                _override_handled = True
+
+        if not _override_handled:
+            # Normal routing (no cross-strategy override active)
+            pass
+
+        if _override_handled:
+            pass  # generated_sql already set by override above
+        elif strategy == GenerationStrategy.SIMPLE_FEW_SHOT:
             step6a_result = self.run_step6a_few_shot_generation(
                 generation_query,
                 results['step1'],
@@ -707,18 +790,6 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             )
             results['step6a'] = step6a_result
             generated_sql = step6a_result['generated_sql']
-
-            # Direct retrieval for EASY queries at high similarity
-            if enable_multi_candidate:
-                easy_examples = results['step4'].get('similar_examples', [])
-                if easy_examples:
-                    top_ex_e = max(easy_examples,
-                        key=lambda x: x.get('combined_score', x.get('similarity_score', 0)))
-                    top_sim_e = top_ex_e.get('combined_score', top_ex_e.get('similarity_score', 0))
-                    ret_sql_e = top_ex_e.get('query', top_ex_e.get('sql', ''))
-                    if top_sim_e >= 0.95 and ret_sql_e and ret_sql_e.upper().strip().startswith('SELECT'):
-                        print(f"   [RETRIEVED-PRIMARY/EASY] Similarity={top_sim_e:.3f} → using retrieved SQL directly")
-                        generated_sql = ret_sql_e.strip()
 
         elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
             step6b_result = self.run_step6b_intermediate_generation(
@@ -730,17 +801,11 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             results['step6b'] = step6b_result
             generated_sql = step6b_result['generated_sql']
 
-            # Retrieved-SQL primary promotion:
-            # With dev examples in the vector store (data leakage), the top retrieved
-            # example for a dev query IS often that exact query's gold SQL.
-            #
-            # Two tiers:
-            #   sim ≥ 0.95 → use retrieved SQL directly (no LLM call). At this
-            #                similarity the stored SQL is almost certainly correct;
-            #                LLM adaptation only introduces errors.
-            #   0.70 ≤ sim < 0.95 → LLM-adapt the template (original approach).
-            #
-            # In both cases NatSQL is demoted to the diversity pool.
+            # Template-adapted primary promotion (CHASE-SQL inspired):
+            # When the top retrieved example has similarity ≥ 0.7, generate a template-
+            # adapted candidate and make it the PRIMARY (candidate 0). The NatSQL result
+            # is saved for the diversity pool — it still participates in majority vote but
+            # can no longer form a correlated majority against the correct answer.
             natsql_candidate_for_pool = None
             if enable_multi_candidate:
                 similar_examples = results['step4'].get('similar_examples', [])
@@ -748,13 +813,7 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                     top_ex = max(similar_examples,
                         key=lambda x: x.get('combined_score', x.get('similarity_score', 0)))
                     top_sim = top_ex.get('combined_score', top_ex.get('similarity_score', 0))
-                    retrieved_sql = top_ex.get('query', top_ex.get('sql', ''))
-                    if top_sim >= 0.95 and retrieved_sql and retrieved_sql.upper().strip().startswith('SELECT'):
-                        # Direct retrieval — skip LLM entirely
-                        print(f"   [RETRIEVED-PRIMARY] Similarity={top_sim:.3f} → using retrieved SQL directly")
-                        natsql_candidate_for_pool = generated_sql
-                        generated_sql = retrieved_sql.strip()
-                    elif top_sim >= 0.70:
+                    if top_sim >= 0.70:
                         try:
                             tmpl_primary = self.intermediate_generator.generate_template_adapted_sql(
                                 question=generation_query,
@@ -797,18 +856,6 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             )
             results['step6c'] = step6c_result
             generated_sql = step6c_result['generated_sql']
-
-            # Direct retrieval for NESTED queries at very high similarity
-            if enable_multi_candidate:
-                nested_examples = results['step4'].get('similar_examples', [])
-                if nested_examples:
-                    top_ex_n = max(nested_examples,
-                        key=lambda x: x.get('combined_score', x.get('similarity_score', 0)))
-                    top_sim_n = top_ex_n.get('combined_score', top_ex_n.get('similarity_score', 0))
-                    ret_sql_n = top_ex_n.get('query', top_ex_n.get('sql', ''))
-                    if top_sim_n >= 0.95 and ret_sql_n and ret_sql_n.upper().strip().startswith('SELECT'):
-                        print(f"   [RETRIEVED-PRIMARY/NESTED] Similarity={top_sim_n:.3f} → using retrieved SQL directly")
-                        generated_sql = ret_sql_n.strip()
 
         else:
             print(f"\n⚠️ Unknown strategy: {strategy.value}")
@@ -974,6 +1021,48 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                     all_candidates.append(distinct_sql)
 
             print(f"   Candidates generated: {len(all_candidates)}")
+
+            # ExCoT / LitE-SQL: repair candidates that fail logical/structural checkers.
+            # Only use regex-based checkers (no DB or in-memory SQLite required):
+            # _check_syntax uses EXPLAIN which always fails for unknown tables in :memory:
+            # _check_empty_result needs a real DB connection.
+            # Remaining checkers (_check_select_star, _check_maxmin, _check_orderby_columns,
+            # _check_join_validity, _check_distinct) are pure regex — safe to run on any SQL.
+            _REPAIRABLE = {'_check_select_star', '_check_maxmin',
+                           '_check_orderby_columns', '_check_join_validity', '_check_distinct'}
+            try:
+                from pipeline.checker_chain import CheckerChain as _RepairCC
+                _repair_checker = _RepairCC(results['step1']['schema_links'])
+                _repaired = []
+                for _cand in all_candidates[:6]:
+                    if len(_repaired) >= 3:
+                        break
+                    # Run only structural checkers individually to avoid false syntax failures
+                    for _checker_name in _REPAIRABLE:
+                        _checker_fn = getattr(_repair_checker, _checker_name)
+                        try:
+                            if _checker_name == '_check_distinct':
+                                _passed, _directive = _checker_fn(_cand, natural_query)
+                            else:
+                                _passed, _directive = _checker_fn(_cand)
+                        except Exception:
+                            continue
+                        if not _passed and _directive:
+                            _fixed = self._repair_candidate(
+                                sql=_cand,
+                                directive=_directive,
+                                generation_query=generation_query,
+                                pruned_schema=results['step1']['pruned_schema'],
+                                schema_links=results['step1']['schema_links'],
+                            )
+                            if _fixed and _fixed not in all_candidates:
+                                _repaired.append(_fixed)
+                            break  # one repair per candidate
+                if _repaired:
+                    all_candidates.extend(_repaired)
+                    print(f"   [REPAIR] Added {len(_repaired)} ExCoT-repaired candidates")
+            except Exception as _repair_err:
+                print(f"   ⚠️  ExCoT repair failed: {_repair_err}")
 
             # Execute all candidates and select winner by majority result-set agreement
             if len(all_candidates) > 1:

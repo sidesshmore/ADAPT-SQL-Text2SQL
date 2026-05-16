@@ -1022,48 +1022,6 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
 
             print(f"   Candidates generated: {len(all_candidates)}")
 
-            # ExCoT / LitE-SQL: repair candidates that fail logical/structural checkers.
-            # Only use regex-based checkers (no DB or in-memory SQLite required):
-            # _check_syntax uses EXPLAIN which always fails for unknown tables in :memory:
-            # _check_empty_result needs a real DB connection.
-            # Remaining checkers (_check_select_star, _check_maxmin, _check_orderby_columns,
-            # _check_join_validity, _check_distinct) are pure regex — safe to run on any SQL.
-            _REPAIRABLE = {'_check_select_star', '_check_maxmin',
-                           '_check_orderby_columns', '_check_join_validity', '_check_distinct'}
-            try:
-                from pipeline.checker_chain import CheckerChain as _RepairCC
-                _repair_checker = _RepairCC(results['step1']['schema_links'])
-                _repaired = []
-                for _cand in all_candidates[:6]:
-                    if len(_repaired) >= 3:
-                        break
-                    # Run only structural checkers individually to avoid false syntax failures
-                    for _checker_name in _REPAIRABLE:
-                        _checker_fn = getattr(_repair_checker, _checker_name)
-                        try:
-                            if _checker_name == '_check_distinct':
-                                _passed, _directive = _checker_fn(_cand, natural_query)
-                            else:
-                                _passed, _directive = _checker_fn(_cand)
-                        except Exception:
-                            continue
-                        if not _passed and _directive:
-                            _fixed = self._repair_candidate(
-                                sql=_cand,
-                                directive=_directive,
-                                generation_query=generation_query,
-                                pruned_schema=results['step1']['pruned_schema'],
-                                schema_links=results['step1']['schema_links'],
-                            )
-                            if _fixed and _fixed not in all_candidates:
-                                _repaired.append(_fixed)
-                            break  # one repair per candidate
-                if _repaired:
-                    all_candidates.extend(_repaired)
-                    print(f"   [REPAIR] Added {len(_repaired)} ExCoT-repaired candidates")
-            except Exception as _repair_err:
-                print(f"   ⚠️  ExCoT repair failed: {_repair_err}")
-
             # Execute all candidates and select winner by majority result-set agreement
             if len(all_candidates) > 1:
                 sel = self.candidate_selector.select(all_candidates, db_path)

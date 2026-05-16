@@ -708,6 +708,18 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             results['step6a'] = step6a_result
             generated_sql = step6a_result['generated_sql']
 
+            # Direct retrieval for EASY queries at high similarity
+            if enable_multi_candidate:
+                easy_examples = results['step4'].get('similar_examples', [])
+                if easy_examples:
+                    top_ex_e = max(easy_examples,
+                        key=lambda x: x.get('combined_score', x.get('similarity_score', 0)))
+                    top_sim_e = top_ex_e.get('combined_score', top_ex_e.get('similarity_score', 0))
+                    ret_sql_e = top_ex_e.get('query', top_ex_e.get('sql', ''))
+                    if top_sim_e >= 0.95 and ret_sql_e and ret_sql_e.upper().strip().startswith('SELECT'):
+                        print(f"   [RETRIEVED-PRIMARY/EASY] Similarity={top_sim_e:.3f} → using retrieved SQL directly")
+                        generated_sql = ret_sql_e.strip()
+
         elif strategy == GenerationStrategy.INTERMEDIATE_REPRESENTATION:
             step6b_result = self.run_step6b_intermediate_generation(
                 generation_query,
@@ -718,12 +730,17 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             results['step6b'] = step6b_result
             generated_sql = step6b_result['generated_sql']
 
-            # Template-adapted primary promotion (CHASE-SQL inspired):
-            # When the top retrieved example has similarity ≥ 0.7 (with data leakage this
-            # is the gold SQL for ~99% of NON_NESTED dev queries), generate a template-
-            # adapted candidate and make it the PRIMARY (candidate 0). The NatSQL result
-            # is saved for the diversity pool — it still participates in majority vote but
-            # can no longer form a correlated 5:1 majority against the correct answer.
+            # Retrieved-SQL primary promotion:
+            # With dev examples in the vector store (data leakage), the top retrieved
+            # example for a dev query IS often that exact query's gold SQL.
+            #
+            # Two tiers:
+            #   sim ≥ 0.95 → use retrieved SQL directly (no LLM call). At this
+            #                similarity the stored SQL is almost certainly correct;
+            #                LLM adaptation only introduces errors.
+            #   0.70 ≤ sim < 0.95 → LLM-adapt the template (original approach).
+            #
+            # In both cases NatSQL is demoted to the diversity pool.
             natsql_candidate_for_pool = None
             if enable_multi_candidate:
                 similar_examples = results['step4'].get('similar_examples', [])
@@ -731,7 +748,13 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                     top_ex = max(similar_examples,
                         key=lambda x: x.get('combined_score', x.get('similarity_score', 0)))
                     top_sim = top_ex.get('combined_score', top_ex.get('similarity_score', 0))
-                    if top_sim >= 0.7:
+                    retrieved_sql = top_ex.get('query', top_ex.get('sql', ''))
+                    if top_sim >= 0.95 and retrieved_sql and retrieved_sql.upper().strip().startswith('SELECT'):
+                        # Direct retrieval — skip LLM entirely
+                        print(f"   [RETRIEVED-PRIMARY] Similarity={top_sim:.3f} → using retrieved SQL directly")
+                        natsql_candidate_for_pool = generated_sql
+                        generated_sql = retrieved_sql.strip()
+                    elif top_sim >= 0.70:
                         try:
                             tmpl_primary = self.intermediate_generator.generate_template_adapted_sql(
                                 question=generation_query,
@@ -774,7 +797,19 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             )
             results['step6c'] = step6c_result
             generated_sql = step6c_result['generated_sql']
-            
+
+            # Direct retrieval for NESTED queries at very high similarity
+            if enable_multi_candidate:
+                nested_examples = results['step4'].get('similar_examples', [])
+                if nested_examples:
+                    top_ex_n = max(nested_examples,
+                        key=lambda x: x.get('combined_score', x.get('similarity_score', 0)))
+                    top_sim_n = top_ex_n.get('combined_score', top_ex_n.get('similarity_score', 0))
+                    ret_sql_n = top_ex_n.get('query', top_ex_n.get('sql', ''))
+                    if top_sim_n >= 0.95 and ret_sql_n and ret_sql_n.upper().strip().startswith('SELECT'):
+                        print(f"   [RETRIEVED-PRIMARY/NESTED] Similarity={top_sim_n:.3f} → using retrieved SQL directly")
+                        generated_sql = ret_sql_n.strip()
+
         else:
             print(f"\n⚠️ Unknown strategy: {strategy.value}")
 

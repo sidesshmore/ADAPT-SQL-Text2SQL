@@ -331,12 +331,15 @@ class EnhancedRetryEngine:
         return enhanced
     
     def _select_best_attempt_research_based(self, attempt_history: List[Dict]) -> Dict:
-        """Return the first attempt that has EX=1, else the last attempt."""
+        """Return the first attempt that has EX=1, else attempt 1 (original strategy).
+        Falling back to attempt 1 (not the last) preserves the NatSQL multi-candidate
+        result for hard queries where all retry strategies also fail — direct_sql on
+        attempt 3 is often worse than the original NatSQL result for complex queries."""
         for attempt in attempt_history:
             result = attempt['result']
             if result.get('step11', {}).get('execution_accuracy'):
                 return result
-        return attempt_history[-1]['result']
+        return attempt_history[0]['result']
     
     def _generate_reasoning(
         self, 

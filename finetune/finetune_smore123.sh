@@ -3,10 +3,10 @@
 #SBATCH --account=grp_hdavulcu
 #SBATCH --partition=public
 #SBATCH --qos=public
-#SBATCH --gres=gpu:1
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=4
-#SBATCH --time=0-12:00:00
+#SBATCH --gres=gpu:a100:4
+#SBATCH --mem=128G
+#SBATCH --cpus-per-task=16
+#SBATCH --time=0-16:00:00
 #SBATCH --output=/scratch/smore123/finetune_%j.log
 #SBATCH --error=/scratch/smore123/finetune_%j.err
 

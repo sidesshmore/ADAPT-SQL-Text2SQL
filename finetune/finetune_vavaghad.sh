@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:a100:4
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=0-04:00:00
+#SBATCH --time=0-16:00:00
 #SBATCH --output=/scratch/vavaghad/finetune_%j.log
 #SBATCH --error=/scratch/vavaghad/finetune_%j.err
 
@@ -81,17 +81,14 @@ fi
 
 # ── Stage 2: GRPO (only if SFT succeeded) ───────────────────────────────────
 if [ $SFT_EXIT -eq 0 ]; then
-    echo "[$(date)] Launching GRPO training on 4 A100s..."
-    torchrun \
-        --nproc_per_node=4 \
-        --master_port=29501 \
-        $PROJECT/finetune/train_grpo.py \
+    echo "[$(date)] Launching GRPO training (single GPU — 4-bit QLoRA incompatible with DDP)..."
+    python $PROJECT/finetune/train_grpo.py \
         --project_dir $PROJECT \
         --checkpoint_dir $CHECKPOINT_DIR \
         --hf_cache $HF_CACHE \
         --epochs 3 \
         --batch_size 1 \
-        --grad_accum 4 \
+        --grad_accum 16 \
         --lr 1e-5
     echo "[$(date)] GRPO finished with exit code $?"
 else

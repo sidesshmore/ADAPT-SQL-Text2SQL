@@ -28,11 +28,15 @@ def _load_embedding_cache(store_path: str):
     global _query_embedding_cache, _cache_loaded
     if _cache_loaded:
         return
-    cache_file = Path(store_path) / "dev_query_embeddings.pkl"
-    if cache_file.exists():
-        with open(cache_file, "rb") as f:
-            _query_embedding_cache = pickle.load(f)
-        print(f"[vector_store] Loaded {len(_query_embedding_cache)} pre-computed embeddings from cache")
+    store_dir = Path(store_path)
+    total = 0
+    for cache_file in [store_dir / "dev_query_embeddings.pkl", store_dir / "test_query_embeddings.pkl"]:
+        if cache_file.exists():
+            with open(cache_file, "rb") as f:
+                _query_embedding_cache.update(pickle.load(f))
+            total = len(_query_embedding_cache)
+    if total:
+        print(f"[vector_store] Loaded {total} pre-computed embeddings from cache")
     _cache_loaded = True
 
 def _get_ollama_client():

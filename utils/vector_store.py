@@ -22,7 +22,7 @@ def _get_ollama_client():
     if not host:
         return None
     if host not in _ollama_client_cache:
-        _ollama_client_cache[host] = ollama.Client(host=host, timeout=30)
+        _ollama_client_cache[host] = ollama.Client(host=host, timeout=120)
     return _ollama_client_cache[host]
 
 
@@ -54,7 +54,7 @@ class SQLVectorStore:
         tokens = re.findall(r'\b[A-Za-z_]\w*\b', sql.upper())
         return ' '.join(t for t in tokens if t in cls._SKELETON_KEYWORDS)
 
-    def _get_embedding(self, text: str, retries: int = 3) -> np.ndarray:
+    def _get_embedding(self, text: str, retries: int = 1) -> np.ndarray:
         """Get embedding vector for text using Nomic, with retry on transient errors."""
         for attempt in range(retries):
             try:
@@ -68,7 +68,7 @@ class SQLVectorStore:
                 if attempt < retries - 1:
                     time.sleep(1)
                 else:
-                    print(f"Error getting embedding after {retries} attempts: {e}")
+                    print(f"Error getting embedding: {e}")
         return None
     
     def build_index_from_spider(

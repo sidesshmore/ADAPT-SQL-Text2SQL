@@ -1,7 +1,8 @@
-faiss-cpu  
-numpy  
-pandas  
-streamlit 
-ollama  
-plotly  
+faiss-cpu
+numpy
+pandas
+streamlit
+ollama
+plotly
 sqlparse
+openai

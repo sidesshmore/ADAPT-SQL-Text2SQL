@@ -6,25 +6,25 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --mem=48G
 #SBATCH --cpus-per-task=8
-#SBATCH --time=0-03:00:00
+#SBATCH --time=0-04:00:00
 #SBATCH --output=/scratch/snande1/eval_ft_%A_%a.log
 #SBATCH --error=/scratch/snande1/eval_ft_%A_%a.err
-#SBATCH --array=0-3
+#SBATCH --array=0-7
 
 USER=snande1
 SCRATCH=/scratch/$USER
 PROJECT=$SCRATCH/ADAPT-SQL-Text2SQL
 
-# 4 tasks × ~259 examples = 1034 total (full Spider dev set)
-STARTS=(0 259 518 777)
-NUMS=(259 259 259 257)
+# 8 tasks × ~130 examples = 1034 total (mirrors eval_sota.sh pattern)
+STARTS=(0 130 260 390 520 650 780 910)
+NUMS=(130 130 130 130 130 130 130 124)
 
 START=${STARTS[$SLURM_ARRAY_TASK_ID]}
 NUM=${NUMS[$SLURM_ARRAY_TASK_ID]}
 RANGE="${START}_$((START + NUM - 1))"
 
 CHECKPOINT_DIR=$SCRATCH/eval_results_finetuned/range_$RANGE
-OLLAMA_PORT=$((11437 + SLURM_ARRAY_TASK_ID))   # 11437–11440
+OLLAMA_PORT=$((11437 + SLURM_ARRAY_TASK_ID))   # 11437–11444
 
 echo "[$(date)] eval-ft job array_id=$SLURM_ARRAY_TASK_ID range=$START+$NUM port=$OLLAMA_PORT"
 

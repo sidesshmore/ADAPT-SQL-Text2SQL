@@ -21,11 +21,14 @@ _client_cache: dict = {}
 class _VoyagerClientShim:
     """Wraps the Voyager OpenAI-compatible API to match ollama.Client.chat() call signature."""
     def chat(self, model=None, messages=None, **kwargs):
+        import httpx
         from openai import OpenAI
         api_key = os.environ.get("VOYAGER_API_KEY", "")
         base_url = os.environ.get("VOYAGER_BASE_URL", "https://openai.rc.asu.edu/v1")
         voyager_model = os.environ.get("VOYAGER_MODEL", model or "llama4-scout-17b")
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        # verify=False: ASU's cert CN is agentic-dev.rc.asu.edu, doesn't match openai.rc.asu.edu
+        client = OpenAI(api_key=api_key, base_url=base_url,
+                        http_client=httpx.Client(verify=False))
         resp = client.chat.completions.create(model=voyager_model, messages=messages or [], timeout=90)
         content = resp.choices[0].message.content or ""
         return {"message": {"content": content, "role": "assistant"}}

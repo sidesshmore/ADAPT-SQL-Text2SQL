@@ -22,11 +22,14 @@ def _get_patched_client():
 
 def _voyager_chat(**kwargs):
     """Route ollama.chat() calls to ASU Voyager OpenAI-compatible API."""
+    import httpx
     from openai import OpenAI
     api_key = os.environ.get("VOYAGER_API_KEY", "")
     base_url = os.environ.get("VOYAGER_BASE_URL", "https://openai.rc.asu.edu/v1")
     model = os.environ.get("VOYAGER_MODEL", "llama4-scout-17b")
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    # verify=False: ASU's cert CN is agentic-dev.rc.asu.edu, doesn't match openai.rc.asu.edu
+    client = OpenAI(api_key=api_key, base_url=base_url,
+                    http_client=httpx.Client(verify=False))
     messages = kwargs.get("messages", [])
     openai_resp = client.chat.completions.create(model=model, messages=messages, timeout=90)
     content = openai_resp.choices[0].message.content or ""

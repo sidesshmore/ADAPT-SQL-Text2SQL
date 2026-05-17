@@ -14,17 +14,22 @@ import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
-
-load_dotenv()  # reads VOYAGER_API_KEY from .env
 
 PROJECT_DIR = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-# Set Voyager env vars before importing the pipeline (patch fires at import time)
-os.environ["VOYAGER_API_KEY"] = os.getenv("VOYAGER_API_KEY", "")
-os.environ["VOYAGER_BASE_URL"] = "https://openai.rc.asu.edu/v1"
-os.environ["VOYAGER_MODEL"] = "qwen3-235b-a22b-thinking-2507"
+# Load .env manually if VOYAGER_API_KEY not already in environment (local dev)
+if not os.environ.get("VOYAGER_API_KEY"):
+    env_file = PROJECT_DIR / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
+
+os.environ.setdefault("VOYAGER_BASE_URL", "https://openai.rc.asu.edu/v1")
+os.environ.setdefault("VOYAGER_MODEL", "qwen3-235b-a22b-thinking-2507")
 
 
 def get_schema(db_path: str) -> dict:

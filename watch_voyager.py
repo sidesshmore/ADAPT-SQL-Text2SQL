@@ -95,34 +95,27 @@ def main():
 
     found_any = False
 
-    # Detect layout by checking subdirectory structure
     subdirs = [d for d in sorted(base.iterdir()) if d.is_dir()]
-
     if not subdirs:
         print(f"No results found in {base}")
         return
 
-    # Check if this is single-model layout (base/range_*/)
+    # Always show flat range_*/ entries under base as the legacy job
     if any(d.name.startswith("range_") for d in subdirs):
-        found_any = print_split_table(base, base.name)
-    else:
-        # Multi-model layout: base/<model>/<split>/range_*/
-        for model_dir in subdirs:
-            split_dirs = [d for d in sorted(model_dir.iterdir()) if d.is_dir()] if model_dir.is_dir() else []
-            model_label = model_dir.name.replace("___", "/")
+        found_any |= print_split_table(base, "qwen3-coder-30b [dev] (legacy job)")
 
-            if not split_dirs:
-                continue
-
-            # Check if model_dir directly contains range_* (no split subdir)
-            if any(d.name.startswith("range_") for d in split_dirs):
-                label = f"{model_label}"
-                found_any |= print_split_table(model_dir, label)
-            else:
-                # Has split subdirs: model/dev/range_*/ and model/test/range_*/
-                for split_dir in split_dirs:
-                    label = f"{model_label}  [{split_dir.name}]"
-                    found_any |= print_split_table(split_dir, label)
+    # Also show all model subdirs (new multi-model layout)
+    for model_dir in sorted(d for d in subdirs if not d.name.startswith("range_")):
+        model_label = model_dir.name.replace("___", "/")
+        split_dirs = [d for d in sorted(model_dir.iterdir()) if d.is_dir()] if model_dir.is_dir() else []
+        if not split_dirs:
+            continue
+        if any(d.name.startswith("range_") for d in split_dirs):
+            found_any |= print_split_table(model_dir, model_label)
+        else:
+            for split_dir in split_dirs:
+                label = f"{model_label}  [{split_dir.name}]"
+                found_any |= print_split_table(split_dir, label)
 
     if not found_any:
         print(f"No checkpoints found in {base}")

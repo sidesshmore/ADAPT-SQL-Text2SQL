@@ -30,7 +30,7 @@ export HOME=/home/$USER
 export PYTHONUNBUFFERED=1
 export VOYAGER_API_KEY=$(grep VOYAGER_API_KEY $PROJECT/.env | cut -d= -f2)
 export VOYAGER_BASE_URL=https://openai.rc.asu.edu/v1
-export VOYAGER_MODEL=qwen3-235b-a22b-thinking-2507
+export VOYAGER_MODEL=qwen3-coder-30b-a3b-instruct
 
 if [ -z "$VOYAGER_API_KEY" ]; then
     echo "[ERROR] VOYAGER_API_KEY not found in $PROJECT/.env"
@@ -40,30 +40,15 @@ fi
 source $PROJECT/venv/bin/activate
 
 # Start Ollama for nomic-embed-text embeddings only (LLM calls go to Voyager)
-OLLAMA_BIN=$SCRATCH/ollama_install/bin/ollama
-if [ ! -f "$OLLAMA_BIN" ]; then
-    echo "[ERROR] Ollama not found at $OLLAMA_BIN"
-    exit 1
-fi
-
-OLLAMA_MODELS=$SCRATCH/ollama_models \
-OLLAMA_HOST=127.0.0.1:$OLLAMA_PORT \
-    $OLLAMA_BIN serve &
-
-OLLAMA_PID=$!
-echo "[$(date)] Ollama PID=$OLLAMA_PID port=$OLLAMA_PORT (embeddings only)"
-sleep 15
-
-export OLLAMA_HOST=http://127.0.0.1:$OLLAMA_PORT
-
-echo "[$(date)] Starting eval range=$RANGE model=$VOYAGER_MODEL"
+# k_examples=0: skip embeddings entirely — no Ollama needed, ~5x faster per query
+echo "[$(date)] Starting eval range=$RANGE model=$VOYAGER_MODEL (zero-shot, no embeddings)"
 
 python $PROJECT/eval_voyager.py \
     --start $START \
     --num $NUM \
     --checkpoint_dir $CHECKPOINT_DIR \
-    --checkpoint_every 25
+    --checkpoint_every 25 \
+    --k_examples 0
 
 EXIT_CODE=$?
 echo "[$(date)] eval done exit_code=$EXIT_CODE"
-kill $OLLAMA_PID 2>/dev/null

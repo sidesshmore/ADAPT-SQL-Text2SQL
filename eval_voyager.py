@@ -29,7 +29,7 @@ if not os.environ.get("VOYAGER_API_KEY"):
                 os.environ.setdefault(k.strip(), v.strip())
 
 os.environ.setdefault("VOYAGER_BASE_URL", "https://openai.rc.asu.edu/v1")
-os.environ.setdefault("VOYAGER_MODEL", "qwen3-235b-a22b-thinking-2507")
+os.environ.setdefault("VOYAGER_MODEL", "qwen3-coder-30b-a3b-instruct")
 
 
 def get_schema(db_path: str) -> dict:
@@ -78,6 +78,8 @@ def main():
     parser.add_argument("--num", type=int, default=50)
     parser.add_argument("--checkpoint_dir", default="eval_results_voyager")
     parser.add_argument("--checkpoint_every", type=int, default=25)
+    parser.add_argument("--k_examples", type=int, default=10,
+                        help="Few-shot examples from vector store (0 = skip embeddings, much faster)")
     args = parser.parse_args()
 
     if not os.environ.get("VOYAGER_API_KEY"):
@@ -100,10 +102,10 @@ def main():
     print(f"[voyager-eval] Model: {os.environ['VOYAGER_MODEL']} @ {os.environ['VOYAGER_BASE_URL']}")
 
     adapt = ADAPTBaseline(
-        model="qwen3-235b-a22b-thinking-2507",
+        model="qwen3-coder-30b-a3b-instruct",
         vector_store_path=vector_store_path,
     )
-    retry_engine = EnhancedRetryEngine(model="qwen3-235b-a22b-thinking-2507", max_full_retries=2)
+    retry_engine = EnhancedRetryEngine(model="qwen3-coder-30b-a3b-instruct", max_full_retries=2)
 
     # Resume from checkpoint if exists
     results = []
@@ -136,7 +138,7 @@ def main():
                 natural_query=example["question"],
                 schema_dict=schema,
                 foreign_keys=fks,
-                k_examples=10,
+                k_examples=args.k_examples,
                 db_path=str(db_path),
                 gold_sql=example.get("query"),
             )

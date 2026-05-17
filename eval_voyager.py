@@ -1,10 +1,10 @@
 """
-Local eval runner using ASU Voyager API (llama4-scout-17b).
+Local eval runner using ASU Voyager API.
 Reads VOYAGER_API_KEY from .env automatically.
 
 Usage:
-    python eval_voyager.py --start 0 --num 50
-    python eval_voyager.py --start 0 --num 1034   # full dev set
+    python eval_voyager.py --split dev --start 0 --num 1034
+    python eval_voyager.py --split test --start 0 --num 2147
 """
 import argparse
 import json
@@ -30,6 +30,19 @@ if not os.environ.get("VOYAGER_API_KEY"):
 
 os.environ.setdefault("VOYAGER_BASE_URL", "https://openai.rc.asu.edu/v1")
 os.environ.setdefault("VOYAGER_MODEL", "qwen3-coder-30b-a3b-instruct")
+
+SPIDER_DATA_DIR = PROJECT_DIR / "data/spider/spider_data"
+
+SPLIT_CONFIG = {
+    "dev": {
+        "json": PROJECT_DIR / "data/spider/dev.json",
+        "db_dir": SPIDER_DATA_DIR / "database",
+    },
+    "test": {
+        "json": SPIDER_DATA_DIR / "test.json",
+        "db_dir": SPIDER_DATA_DIR / "test_database",
+    },
+}
 
 
 def get_schema(db_path: str) -> dict:
@@ -74,12 +87,14 @@ def save_checkpoint(results, out_dir, final=False):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--split", choices=["dev", "test"], default="dev",
+                        help="Which Spider split to evaluate (dev=1034, test=2147)")
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--num", type=int, default=50)
     parser.add_argument("--checkpoint_dir", default="eval_results_voyager")
     parser.add_argument("--checkpoint_every", type=int, default=25)
     parser.add_argument("--k_examples", type=int, default=10,
-                        help="Few-shot examples from vector store (0 = skip embeddings, much faster)")
+                        help="Few-shot examples from vector store (0 = skip embeddings)")
     args = parser.parse_args()
 
     if not os.environ.get("VOYAGER_API_KEY"):
@@ -89,8 +104,9 @@ def main():
     from core.adapt_baseline import ADAPTBaseline
     from ui.enhanced_retry_engine import EnhancedRetryEngine
 
-    spider_json = PROJECT_DIR / "data/spider/dev.json"
-    spider_db_dir = PROJECT_DIR / "data/spider/spider_data/database"
+    cfg = SPLIT_CONFIG[args.split]
+    spider_json = cfg["json"]
+    spider_db_dir = cfg["db_dir"]
     vector_store_path = str(PROJECT_DIR / "vector_store")
 
     with open(spider_json) as f:
@@ -98,14 +114,12 @@ def main():
 
     end = min(args.start + args.num, len(spider_data))
     total = end - args.start
-    print(f"[voyager-eval] Range {args.start}-{end-1} ({total} examples)")
-    print(f"[voyager-eval] Model: {os.environ['VOYAGER_MODEL']} @ {os.environ['VOYAGER_BASE_URL']}")
+    model = os.environ["VOYAGER_MODEL"]
+    print(f"[voyager-eval] Split={args.split} Range={args.start}-{end-1} ({total} examples)")
+    print(f"[voyager-eval] Model: {model} @ {os.environ['VOYAGER_BASE_URL']}")
 
-    adapt = ADAPTBaseline(
-        model="qwen3-coder-30b-a3b-instruct",
-        vector_store_path=vector_store_path,
-    )
-    retry_engine = EnhancedRetryEngine(model="qwen3-coder-30b-a3b-instruct", max_full_retries=2)
+    adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
+    retry_engine = EnhancedRetryEngine(model=model, max_full_retries=2)
 
     # Resume from checkpoint if exists
     results = []
@@ -159,7 +173,7 @@ def main():
 
     save_checkpoint(results, args.checkpoint_dir, final=True)
     correct = sum(r.get("result", {}).get("step11", {}).get("execution_accuracy", False) for r in results)
-    print(f"\n[done] EX: {correct}/{len(results)} = {correct/len(results)*100:.1f}%")
+    print(f"\n[done] Split={args.split} EX: {correct}/{len(results)} = {correct/len(results)*100:.1f}%")
 
 
 if __name__ == "__main__":

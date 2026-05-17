@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=adapt-grpo-snande1
-#SBATCH --account=class_cse543spring2026
+#SBATCH --account=class_cse57388551fall2025
 #SBATCH --partition=public
 #SBATCH --qos=class
 #SBATCH --gres=gpu:a100:1

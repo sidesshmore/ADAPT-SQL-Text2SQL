@@ -39,16 +39,15 @@ fi
 
 source $PROJECT/venv/bin/activate
 
-# Start Ollama for nomic-embed-text embeddings only (LLM calls go to Voyager)
-# k_examples=0: skip embeddings entirely — no Ollama needed, ~5x faster per query
-echo "[$(date)] Starting eval range=$RANGE model=$VOYAGER_MODEL (zero-shot, no embeddings)"
+# Embeddings served from pre-computed cache (vector_store/dev_query_embeddings.pkl)
+# No Ollama needed — cache lookup is instant
+echo "[$(date)] Starting eval range=$RANGE model=$VOYAGER_MODEL (cached embeddings)"
 
 python $PROJECT/eval_voyager.py \
     --start $START \
     --num $NUM \
     --checkpoint_dir $CHECKPOINT_DIR \
-    --checkpoint_every 25 \
-    --k_examples 0
+    --checkpoint_every 25
 
 EXIT_CODE=$?
 echo "[$(date)] eval done exit_code=$EXIT_CODE"

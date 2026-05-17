@@ -4,6 +4,7 @@ Can be run directly to build the index: python vector_store.py
 """
 import json
 import os
+import pickle  # matches checkpoint format used across the pipeline
 import re
 import time
 import numpy as np
@@ -16,6 +17,23 @@ from typing import List, Dict, Optional
 # The ollama library binds its default client at import time, so OLLAMA_HOST
 # set after import has no effect without this patch.
 _ollama_client_cache: dict = {}
+
+# Pre-computed query embedding cache: {text -> np.ndarray}.
+# Loaded once from vector_store/dev_query_embeddings.pkl if present.
+# Avoids slow CPU embedding during eval on CPU-only nodes.
+_query_embedding_cache: dict = {}
+_cache_loaded: bool = False
+
+def _load_embedding_cache(store_path: str):
+    global _query_embedding_cache, _cache_loaded
+    if _cache_loaded:
+        return
+    cache_file = Path(store_path) / "dev_query_embeddings.pkl"
+    if cache_file.exists():
+        with open(cache_file, "rb") as f:
+            _query_embedding_cache = pickle.load(f)
+        print(f"[vector_store] Loaded {len(_query_embedding_cache)} pre-computed embeddings from cache")
+    _cache_loaded = True
 
 def _get_ollama_client():
     host = os.environ.get("OLLAMA_HOST", "")
@@ -55,7 +73,9 @@ class SQLVectorStore:
         return ' '.join(t for t in tokens if t in cls._SKELETON_KEYWORDS)
 
     def _get_embedding(self, text: str, retries: int = 1) -> np.ndarray:
-        """Get embedding vector for text using Nomic, with retry on transient errors."""
+        """Get embedding vector for text. Checks pre-computed cache before calling Ollama."""
+        if text in _query_embedding_cache:
+            return _query_embedding_cache[text]
         for attempt in range(retries):
             try:
                 client = _get_ollama_client()
@@ -191,8 +211,9 @@ class SQLVectorStore:
                 self.dimension = metadata['dimension']
             
             print(f"✅ Loaded {len(self.examples)} examples (dim: {self.dimension})")
+            _load_embedding_cache(load_path)
             return True
-            
+
         except Exception as e:
             print(f"❌ Error loading index: {e}")
             return False

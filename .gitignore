@@ -50,6 +50,12 @@ build/
 # Streamlit
 .streamlit/improvement.md
 
+# Vector store (large binary index — rebuild with utils/vector_store.py)
+vector_store/
+
+# Eval results
+eval_results_voyager/
+
 # Large result artifacts
 *.pkl
 batch_results/

@@ -20,7 +20,23 @@ def _get_patched_client():
         _ollama_client_cache[host] = _ollama_module.Client(host=host, timeout=90)
     return _ollama_client_cache[host]
 
+def _voyager_chat(**kwargs):
+    """Route ollama.chat() calls to ASU Voyager OpenAI-compatible API."""
+    from openai import OpenAI
+    api_key = os.environ.get("VOYAGER_API_KEY", "")
+    base_url = os.environ.get("VOYAGER_BASE_URL", "https://openai.rc.asu.edu/v1")
+    model = os.environ.get("VOYAGER_MODEL", "llama4-scout-17b")
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    messages = kwargs.get("messages", [])
+    openai_resp = client.chat.completions.create(model=model, messages=messages, timeout=90)
+    content = openai_resp.choices[0].message.content or ""
+    # Return an object that matches the ollama response shape all pipeline modules expect:
+    # response['message']['content']
+    return {"message": {"content": content, "role": "assistant"}}
+
 def _patched_chat(**kwargs):
+    if os.environ.get("VOYAGER_API_KEY"):
+        return _voyager_chat(**kwargs)
     return _get_patched_client().chat(**kwargs)
 
 def _patched_embeddings(**kwargs):

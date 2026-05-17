@@ -59,18 +59,23 @@ sleep 20
 
 # ── Register model if not already present ────────────────────────────────────
 MODELFILE=$SCRATCH/finetune_gguf/Modelfile
-if [ ! -f "$MODELFILE" ]; then
-    cat > $MODELFILE <<EOF
+cat > $MODELFILE <<EOF
 FROM $GGUF_FILE
 
 PARAMETER temperature 0.1
 PARAMETER top_p 0.9
-PARAMETER stop "### Schema:"
-PARAMETER stop "### Question:"
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"
+
+TEMPLATE """<|im_start|>system
+{{ .System }}<|im_end|>
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+"""
 
 SYSTEM "You are an expert SQL generation assistant. Given a database schema and a natural language question, generate correct and efficient SQL."
 EOF
-fi
 
 OLLAMA_MODELS=$SCRATCH/ollama_models OLLAMA_HOST=127.0.0.1:$OLLAMA_PORT \
     $OLLAMA_BIN create adapt-sql-coder -f $MODELFILE 2>/dev/null || true

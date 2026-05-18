@@ -91,8 +91,7 @@ class SQLVectorStore:
             except Exception as e:
                 if attempt < retries - 1:
                     time.sleep(1)
-                else:
-                    print(f"Error getting embedding: {e}")
+                # Ollama unavailable on CPU-only nodes — caller handles None
         return None
     
     def build_index_from_spider(
@@ -249,8 +248,14 @@ class SQLVectorStore:
             else:
                 embed_query = query
 
-            # Get query embedding
+            # Fall back to question-only if combined text not in cache (avoids Ollama call on retry path)
+            if embed_query not in _query_embedding_cache and query in _query_embedding_cache:
+                embed_query = query
+
+            # Get query embedding — fall back to question-only if skeleton variant not cached
             query_embedding = self._get_embedding(embed_query)
+            if query_embedding is None and embed_query != query:
+                query_embedding = self._get_embedding(query)
             if query_embedding is None:
                 return []
             

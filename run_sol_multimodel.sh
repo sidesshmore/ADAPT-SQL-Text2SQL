@@ -1,15 +1,13 @@
 #!/bin/bash
 # sbatch array job — one model, one split, 150-query batches
 #
-# Usage (--array is passed on the command line, not hardcoded here):
+# Usage: pass model and split as positional args (avoids SLURM env retrieval failures)
 #
 #   dev  (1034 queries, 7 tasks):
-#     VOYAGER_MODEL=qwen3-coder-30b-a3b-instruct \
-#       sbatch --array=0-6 --export=ALL,SPLIT=dev run_sol_multimodel.sh
+#     sbatch --array=0-6  run_sol_multimodel.sh qwen3-coder-30b-a3b-instruct dev
 #
 #   test (2147 queries, 15 tasks):
-#     VOYAGER_MODEL=qwen3-235b-a22b-instruct \
-#       sbatch --array=0-14 --export=ALL,SPLIT=test run_sol_multimodel.sh
+#     sbatch --array=0-14 run_sol_multimodel.sh qwen3-235b-a22b-instruct-2507 test
 
 #SBATCH --job-name=adapt-multimodel
 #SBATCH --account=class_cse57388551fall2025
@@ -21,7 +19,9 @@
 #SBATCH --output=/scratch/smore123/multimodel_%A_%a.log
 #SBATCH --error=/scratch/smore123/multimodel_%A_%a.err
 
-SPLIT="${SPLIT:-dev}"
+# Positional args — no environment variable passing needed
+MODEL="${1:-qwen3-coder-30b-a3b-instruct}"
+SPLIT="${2:-dev}"
 
 USER=smore123
 SCRATCH=/scratch/$USER
@@ -30,8 +30,6 @@ PROJECT=$SCRATCH/ADAPT-SQL-Text2SQL
 # 150 queries per task; eval_voyager.py clips the last batch automatically
 START=$(( SLURM_ARRAY_TASK_ID * 150 ))
 NUM=150
-
-MODEL="${VOYAGER_MODEL:-qwen3-coder-30b-a3b-instruct}"
 
 echo "[$(date)] array=$SLURM_ARRAY_TASK_ID split=$SPLIT start=$START num=$NUM model=$MODEL"
 

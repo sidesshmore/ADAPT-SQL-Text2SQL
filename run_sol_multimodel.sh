@@ -12,7 +12,6 @@
 #SBATCH --job-name=adapt-multimodel
 #SBATCH --account=class_cse57388551fall2025
 #SBATCH --partition=public
-#SBATCH --qos=class
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #SBATCH --time=0-08:00:00

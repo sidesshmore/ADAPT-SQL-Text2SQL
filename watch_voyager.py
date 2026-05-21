@@ -104,7 +104,7 @@ def main():
                         help="Use SOL path: /scratch/smore123/eval_results_voyager")
     args = parser.parse_args()
 
-    base = Path("/scratch/smore123/eval_results_voyager") if args.sol else PROJECT_DIR / args.dir
+    base = Path("/scratch/smore123/ADAPT-SQL-Text2SQL/eval_results_voyager") if args.sol else PROJECT_DIR / args.dir
 
     if not base.exists():
         print(f"No results directory found at {base}")

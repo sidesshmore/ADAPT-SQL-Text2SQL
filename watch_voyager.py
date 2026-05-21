@@ -37,6 +37,17 @@ def get_ex(result: dict) -> bool:
     return result.get("result", {}).get("step11", {}).get("execution_accuracy", False)
 
 
+def parse_range_size(range_name: str) -> int:
+    """Parse expected query count from dir name like range_0_150 → 150."""
+    parts = range_name.split("_")
+    if len(parts) == 3:
+        try:
+            return int(parts[2]) - int(parts[1])
+        except ValueError:
+            pass
+    return 0
+
+
 def print_split_table(split_dir: Path, label: str) -> bool:
     """Print EX table for one model+split directory containing range_*/ subdirs."""
     range_files: dict = defaultdict(list)
@@ -47,7 +58,7 @@ def print_split_table(split_dir: Path, label: str) -> bool:
     if not range_files:
         return False
 
-    total, correct = 0, 0
+    total_done, total_expected, correct = 0, 0, 0
     rows = []
     for rng in sorted(range_files):
         results = load_latest_checkpoint(range_files[rng])
@@ -55,27 +66,33 @@ def print_split_table(split_dir: Path, label: str) -> bool:
             continue
         c = sum(get_ex(r) for r in results)
         n = len(results)
+        expected = parse_range_size(rng) or n
         pct = c / n * 100 if n else 0
         is_final = any("final_checkpoint" in f for f in range_files[rng])
-        rows.append((rng, c, n, pct, "DONE" if is_final else "running"))
-        total += n
+        status = "DONE" if is_final else f"{n}/{expected}"
+        rows.append((rng, c, n, expected, pct, status, is_final))
+        total_done += n
+        total_expected += expected
         correct += c
 
     if not rows:
         return False
 
-    overall = correct / total * 100 if total else 0
-    done_ranges = sum(1 for *_, s in rows if s == "DONE")
-    print(f"\n{'='*62}")
+    overall = correct / total_done * 100 if total_done else 0
+    done_ranges = sum(1 for *_, is_final in rows if is_final)
+    num_ranges = len(rows)
+    print(f"\n{'='*68}")
     print(f"  {label}")
-    print(f"  Overall: {correct}/{total} = {overall:.1f}%  ({done_ranges}/8 ranges done)")
-    print(f"{'='*62}")
-    print(f"  {'Range':<22} {'Correct':>7} {'Total':>6} {'EX%':>7}  Status")
-    print(f"  {'-'*54}")
-    for rng, c, n, pct, status in rows:
-        print(f"  {rng:<22} {c:>7} {n:>6} {pct:>6.1f}%  {status}")
-    print(f"  {'-'*54}")
-    print(f"  {'OVERALL':<22} {correct:>7} {total:>6} {overall:>6.1f}%")
+    print(f"  Queries: {total_done}/{total_expected}  EX: {correct}/{total_done} = {overall:.1f}%  ({done_ranges}/{num_ranges} ranges done)")
+    print(f"{'='*68}")
+    print(f"  {'Range':<22} {'Correct':>7} {'Done/Exp':>10} {'EX%':>7}  Status")
+    print(f"  {'-'*60}")
+    for rng, c, n, expected, pct, status, _ in rows:
+        done_exp = f"{n}/{expected}"
+        print(f"  {rng:<22} {c:>7} {done_exp:>10} {pct:>6.1f}%  {status}")
+    print(f"  {'-'*60}")
+    overall_done_exp = f"{total_done}/{total_expected}"
+    print(f"  {'OVERALL':<22} {correct:>7} {overall_done_exp:>10} {overall:>6.1f}%")
     return True
 
 

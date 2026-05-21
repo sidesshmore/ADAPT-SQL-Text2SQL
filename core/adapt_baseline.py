@@ -684,6 +684,7 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
         enable_execution_retry: bool = True,
         enable_multi_candidate: bool = False,
         generation_strategy_override: Optional[str] = None,
+        search_query: Optional[str] = None,
     ) -> Dict:
         """
         Run complete ADAPT-SQL pipeline (Steps 1-11)
@@ -712,8 +713,10 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
         print("="*70)
         
         # Steps 1-4: Analysis and Example Retrieval
+        # Use original search_query for Step 4 so retry-hint suffixes don't
+        # poison the embedding lookup (retry hints aren't in the precomputed cache).
         results = self.run_steps_1_to_4(
-            natural_query, schema_dict, foreign_keys, k_examples
+            search_query or natural_query, schema_dict, foreign_keys, k_examples
         )
         
         # Step 5: Routing based on complexity

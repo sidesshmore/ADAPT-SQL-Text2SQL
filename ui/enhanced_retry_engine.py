@@ -177,6 +177,8 @@ class EnhancedRetryEngine:
             print(f"   [CROSS-STRATEGY] Attempt {failed_attempt + 1} → override={generation_strategy_override}")
 
         # Run full pipeline
+        # Pass original natural_query as search_query so Step 4 vector search
+        # always uses the clean question (retry hints break cache lookup).
         result = adapt_baseline.run_full_pipeline(
             natural_query=enhanced_query,
             schema_dict=schema_dict,
@@ -189,6 +191,7 @@ class EnhancedRetryEngine:
             enable_evaluation=(gold_sql is not None),
             enable_multi_candidate=True,
             generation_strategy_override=generation_strategy_override,
+            search_query=natural_query,
         )
         
         # Store original query
@@ -331,15 +334,21 @@ class EnhancedRetryEngine:
         return enhanced
     
     def _select_best_attempt_research_based(self, attempt_history: List[Dict]) -> Dict:
-        """Return the first attempt that has EX=1, else attempt 1 (original strategy).
-        Falling back to attempt 1 (not the last) preserves the NatSQL multi-candidate
-        result for hard queries where all retry strategies also fail — direct_sql on
-        attempt 3 is often worse than the original NatSQL result for complex queries."""
+        """Return the first attempt that has EX=1.
+        When all attempts fail, return the attempt with the highest evaluation_score
+        rather than always defaulting to attempt 1 — skeleton_first or direct_sql
+        may have produced a higher partial score on some queries."""
         for attempt in attempt_history:
             result = attempt['result']
             if result.get('step11', {}).get('execution_accuracy'):
                 return result
-        return attempt_history[0]['result']
+        # All failed: pick highest partial evaluation_score
+        best = max(
+            attempt_history,
+            key=lambda a: a['result'].get('step11', {}).get('evaluation_score', 0.0),
+            default=attempt_history[0]
+        )
+        return best['result']
     
     def _generate_reasoning(
         self, 

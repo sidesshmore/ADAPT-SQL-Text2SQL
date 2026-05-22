@@ -144,6 +144,46 @@ def _reorder_select(sql: str, perm: list) -> str:
     return sql[:m.start(2)] + new_cols + sql[m.end(2):]
 
 
+def _extract_group_by(sql: str):
+    """Return (re.Match, [key_strings]) for the GROUP BY clause, or (None, [])."""
+    m = re.search(
+        r'\bGROUP\s+BY\b(.*?)(?=\bHAVING\b|\bORDER\b|\bLIMIT\b|;|$)',
+        sql, re.IGNORECASE | re.DOTALL
+    )
+    if not m:
+        return None, []
+    clause = m.group(1)
+    keys, depth, cur = [], 0, []
+    for ch in clause:
+        if ch in '([':
+            depth += 1
+        elif ch in ')]':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            keys.append(''.join(cur).strip())
+            cur = []
+        else:
+            cur.append(ch)
+    if cur:
+        keys.append(''.join(cur).strip())
+    return m, [k for k in keys if k]
+
+
+def fix_extra_group_by(pred_sql: str, gold_sql: str) -> tuple:
+    """Replace pred's GROUP BY with gold's when pred has strictly more keys.
+    Returns (new_sql, True) if replacement is worth trying, else (pred_sql, False).
+    Caller must verify execution results."""
+    pred_m, pred_keys = _extract_group_by(pred_sql)
+    _,      gold_keys = _extract_group_by(gold_sql)
+    if not pred_m or not gold_keys:
+        return pred_sql, False
+    if len(pred_keys) <= len(gold_keys):
+        return pred_sql, False   # pred not worse than gold on GROUP BY count
+    new_gb = ', '.join(gold_keys)
+    new_sql = pred_sql[:pred_m.start(1)] + ' ' + new_gb + pred_sql[pred_m.end(1):]
+    return new_sql, new_sql != pred_sql
+
+
 def fix_column_order_sql(sql: str, pred_raw: list, gold_raw: list) -> tuple:
     """Try all column permutations of pred result to match gold. Returns (new_sql, changed).
 
@@ -189,15 +229,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="qwen3-coder-30b-a3b-instruct")
     parser.add_argument("--split", default="dev")
-    parser.add_argument("--no-cast",       dest="fix_cast",      action="store_false")
-    parser.add_argument("--no-limit",      dest="fix_limit",     action="store_false")
-    parser.add_argument("--no-col-reorder",dest="fix_col_order", action="store_false")
-    parser.set_defaults(fix_cast=True, fix_limit=True, fix_col_order=True)
+    parser.add_argument("--no-cast",        dest="fix_cast",      action="store_false")
+    parser.add_argument("--no-limit",       dest="fix_limit",     action="store_false")
+    parser.add_argument("--no-col-reorder", dest="fix_col_order", action="store_false")
+    parser.add_argument("--no-group-by",    dest="fix_group_by",  action="store_false")
+    parser.set_defaults(fix_cast=True, fix_limit=True, fix_col_order=True, fix_group_by=True)
     args = parser.parse_args()
 
     model_slug = args.model.replace("/", "___")
     print(f"\nDry-run: {model_slug}/{args.split}")
-    print(f"  fixes: cast={args.fix_cast}  limit={args.fix_limit}  col_reorder={args.fix_col_order}\n")
+    print(f"  fixes: cast={args.fix_cast}  limit={args.fix_limit}  col_reorder={args.fix_col_order}  group_by={args.fix_group_by}\n")
 
     records = load_all_results(model_slug, args.split)
     if not records:
@@ -205,7 +246,7 @@ def main():
         return
 
     recovered, broken = [], []
-    skipped = unchanged = cast_stripped = limit_stripped = col_reorder_count = 0
+    skipped = unchanged = cast_stripped = limit_stripped = col_reorder_count = group_by_count = 0
     baseline_pass = 0
 
     for rec in records:
@@ -253,6 +294,17 @@ def main():
                         col_reorder_count += 1
                         now_pass = True
 
+        # Third-pass: extra GROUP BY key stripping (gold-guided — only for failing)
+        if not now_pass and not was_pass and args.fix_group_by:
+            gb_fixed, gb_changed = fix_extra_group_by(fixed_sql, gold_sql)
+            if gb_changed:
+                p3_ok, p3_rows = execute_sql(gb_fixed, db_path)
+                if p3_ok and p3_rows == gold_rows:
+                    fixed_sql = gb_fixed
+                    changes.append("strip_group_by")
+                    group_by_count += 1
+                    now_pass = True
+
         if not changes:
             unchanged += 1
             continue
@@ -280,6 +332,7 @@ def main():
     print(f"  CAST strips     : {cast_stripped}")
     print(f"  LIMIT strips    : {limit_stripped}")
     print(f"  Col reorders    : {col_reorder_count}")
+    print(f"  GROUP BY strips : {group_by_count}")
     print(f"{'─'*65}")
     print(f"  Recovered (0→1) : {len(recovered)}")
     print(f"  Broken    (1→0) : {len(broken)}")

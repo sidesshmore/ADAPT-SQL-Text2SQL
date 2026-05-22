@@ -1107,6 +1107,42 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
         else:
             results['step6_5_normalization'] = None
         
+        # Step 6.6: Set-op post-generation enforcement
+        # If a set op was detected but the generated SQL ignores it, force one-shot
+        # regeneration with a CRITICAL-level override hint before validation.
+        results['step6_setop_enforce'] = None
+        if set_op_hint and generated_sql:
+            _det  = self.set_op_detector.detect(natural_query)
+            _op   = _det.get('op', '')
+            _conf = _det.get('confidence', 0.0)
+            if (_op and _conf >= 0.70
+                    and not self.set_op_detector.verify_sql_uses_setop(generated_sql, _op)):
+                print(f"\n   [SET-OP ENFORCE] {_op} absent in generated SQL (conf={_conf:.2f}) — forcing regen")
+                _critical_hint = (
+                    f"CRITICAL: Your previous attempt did NOT use {_op}. "
+                    f"This question REQUIRES a SQL {_op} set operation — "
+                    f"do NOT approximate with WHERE/NOT IN filters.\n\n"
+                ) + set_op_hint
+                try:
+                    _r = self.run_step6a_few_shot_generation(
+                        generation_query,
+                        results['step1'],
+                        results['step4'],
+                        set_op_hint=_critical_hint,
+                    )
+                    _sql = _r.get('generated_sql', '')
+                    if (_sql and _sql.upper().strip().startswith('SELECT')
+                            and self.set_op_detector.verify_sql_uses_setop(_sql, _op)):
+                        print(f"   [SET-OP ENFORCE] ✓ Regen contains {_op}")
+                        generated_sql = _sql
+                        results['step6_setop_enforce'] = {'enforced': True, 'op': _op, 'sql': _sql}
+                    else:
+                        print(f"   [SET-OP ENFORCE] ✗ Regen still missing {_op} — keeping original")
+                        results['step6_setop_enforce'] = {'enforced': False, 'op': _op}
+                except Exception as _ee:
+                    print(f"   [SET-OP ENFORCE] Error during regen: {_ee}")
+                    results['step6_setop_enforce'] = {'enforced': False, 'op': _op, 'error': str(_ee)}
+
         # Step 7: Validation
         if generated_sql:
             step7_result = self.run_step7_validation(

@@ -61,7 +61,13 @@ class SQLNormalizer:
         
         # Step 1: Parse and clean SQL
         generated_sql = self._clean_sql(generated_sql)
-        
+
+        # Step 1b: Strip spurious CAST() wrappers — the model wraps numeric
+        # columns in CAST() for type safety, but SQLite's Horsepower/MPG columns
+        # store mixed strings and NULLs, so CAST changes NULL sort order vs gold.
+        generated_sql, cast_changes = self._strip_spurious_cast(generated_sql)
+        changes_made.extend(cast_changes)
+
         # Step 2: Normalize aliases
         generated_sql, alias_changes = self._normalize_aliases(generated_sql)
         changes_made.extend(alias_changes)
@@ -101,6 +107,24 @@ class SQLNormalizer:
             'reasoning': reasoning
         }
     
+    def _strip_spurious_cast(self, sql: str) -> Tuple[str, List[str]]:
+        """Remove CAST(expr AS TYPE) → expr.
+
+        The LLM wraps numeric columns in CAST() for type safety, but in SQLite
+        this changes NULL handling and sort order relative to gold queries that
+        reference the raw column. Stripping recovers the correct behaviour.
+        """
+        changes = []
+        new_sql = re.sub(
+            r'\bCAST\s*\(\s*([^)]+?)\s+AS\s+\w+\s*\)',
+            lambda m: m.group(1).strip(),
+            sql,
+            flags=re.IGNORECASE,
+        )
+        if new_sql != sql:
+            changes.append("Stripped spurious CAST() wrappers from numeric columns")
+        return new_sql, changes
+
     def _clean_sql(self, sql: str) -> str:
         """Basic SQL cleaning"""
         # Remove comments

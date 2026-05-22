@@ -33,13 +33,22 @@ def load_all_results(model_slug: str, split: str) -> list:
     return results
 
 
-def get_step(result: dict, step: str):
-    r = result.get("result", result)
-    return r.get(step, {})
+def get_pipeline(record: dict) -> dict:
+    """Return the inner pipeline result dict."""
+    return record.get("result", record)
 
 
-def classify_failure(result: dict) -> str:
-    r = result.get("result", result)
+def get_example(record: dict) -> dict:
+    """Return the Spider example dict (has question, query, db_id)."""
+    return record.get("example", {})
+
+
+def get_step(record: dict, step: str):
+    return get_pipeline(record).get(step, {})
+
+
+def classify_failure(record: dict) -> str:
+    r = get_pipeline(record)
     s10 = r.get("step10_generated", {})
 
     if s10 and not s10.get("success", True):
@@ -57,14 +66,14 @@ def classify_failure(result: dict) -> str:
     return "wrong_results"
 
 
-def get_complexity(result: dict) -> str:
-    r = result.get("result", result)
+def get_complexity(record: dict) -> str:
+    r = get_pipeline(record)
     s2 = r.get("step2", {})
     return s2.get("complexity", s2.get("classification", "UNKNOWN"))
 
 
-def get_strategy(result: dict) -> str:
-    r = result.get("result", result)
+def get_strategy(record: dict) -> str:
+    r = get_pipeline(record)
     s5 = r.get("step5", {})
     return s5.get("strategy", s5.get("routing_decision", "UNKNOWN"))
 
@@ -132,9 +141,8 @@ def main():
     # ── SQL keyword patterns in failures ───────────────────────────────
     print(f"\nSQL keywords in failed gold queries:")
     kw_counts = Counter()
-    for r in failures:
-        rr = r.get("result", r)
-        gold = rr.get("gold_sql", rr.get("step11", {}).get("gold_sql", ""))
+    for rec in failures:
+        gold = get_example(rec).get("query", "")
         if gold:
             for kw in sql_features(gold):
                 kw_counts[kw] += 1
@@ -143,28 +151,29 @@ def main():
         print(f"  {kw:<20} {cnt:>5}  ({pct:.1f}% of failures)")
 
     # ── Exec error details ─────────────────────────────────────────────
-    exec_errors = [r for r in failures if classify_failure(r).startswith("exec_error")]
+    exec_errors = [rec for rec in failures if classify_failure(rec).startswith("exec_error")]
     if exec_errors:
         print(f"\nExecution errors ({len(exec_errors)}):")
-        for r in exec_errors[:5]:
-            rr = r.get("result", r)
-            q   = rr.get("question", rr.get("natural_query", "?"))[:70]
-            err = rr.get("step10_generated", {}).get("error_message", "")[:100]
+        for rec in exec_errors[:5]:
+            q   = get_example(rec).get("question", "?")[:70]
+            err = get_pipeline(rec).get("step10_generated", {}).get("error_message", "")[:100]
             print(f"  Q:   {q}")
             print(f"  Err: {err}\n")
 
     # ── Top N failure examples ─────────────────────────────────────────
     print(f"\nSample failures (top {args.top}):")
     print(f"{'─'*65}")
-    for i, r in enumerate(failures[:args.top]):
-        rr = r.get("result", r)
-        q     = rr.get("question", rr.get("natural_query", "?"))
+    for i, rec in enumerate(failures[:args.top]):
+        ex    = get_example(rec)
+        rr    = get_pipeline(rec)
+        q     = ex.get("question", "?")
+        gold  = ex.get("query", "N/A")
         pred  = rr.get("final_sql", "N/A")
-        gold  = rr.get("gold_sql", rr.get("step11", {}).get("gold_sql", "N/A"))
-        comp  = get_complexity(r)
-        ftype = classify_failure(r)
+        comp  = get_complexity(rec)
+        ftype = classify_failure(rec)
         retry = rr.get("retry_count", 0)
-        print(f"\n[{i+1}] {comp} | {ftype} | retries={retry}")
+        db    = ex.get("db_id", "?")
+        print(f"\n[{i+1}] {comp} | {ftype} | retries={retry} | db={db}")
         print(f"  Q:    {q[:90]}")
         print(f"  PRED: {pred[:120]}")
         print(f"  GOLD: {gold[:120]}")

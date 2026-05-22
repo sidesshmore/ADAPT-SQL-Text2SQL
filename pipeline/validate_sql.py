@@ -116,6 +116,25 @@ class SQLValidator:
         mistake_warnings = self._check_common_mistakes(generated_sql, pruned_schema)
         warnings.extend(mistake_warnings)
         print(f"   Common mistake warnings: {len(mistake_warnings)}")
+
+        # 7.8. Check for aggregate function in WHERE (should be HAVING)
+        import re as _re
+        _where_agg = _re.search(
+            r"\bWHERE\b[^()]*\b(COUNT|SUM|AVG|MIN|MAX)\s*\(",
+            generated_sql.upper()
+        )
+        if _where_agg:
+            agg_fn = _where_agg.group(1)
+            errors.append({
+                "type": "HAVING_ERROR",
+                "message": (
+                    f"INVALID SQL: {agg_fn}() in WHERE clause. "
+                    "Aggregate functions (COUNT/SUM/AVG/MIN/MAX) cannot appear in WHERE. "
+                    "Use HAVING instead: SELECT ... GROUP BY col HAVING COUNT(*) > N"
+                ),
+                "severity": "CRITICAL",
+            })
+            print(f"   HAVING error detected: {agg_fn}() in WHERE clause")
         
         # Generate suggestions
         print("7.8: Generating suggestions...")

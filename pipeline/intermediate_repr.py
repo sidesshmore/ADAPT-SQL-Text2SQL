@@ -497,13 +497,22 @@ class IntermediateRepresentationGenerator:
         similarity = top_example.get('combined_score', top_example.get('similarity_score', 0))
 
         # Only use template adaptation when the example is meaningfully similar
-        if similarity < 0.5:
+        if similarity < 0.35:
             return ''
 
         template_sql = top_example.get('query', top_example.get('sql', ''))
         template_question = top_example.get('question', '')
         if not template_sql or not template_question:
             return ''
+
+        # Safety gate: reject template if it references tables outside pruned schema
+        import re as _re
+        _schema_tables = {t.lower().strip() for t in pruned_schema.keys()}
+        _template_tables = set(_re.findall(r'FROM\s+(\w+)|JOIN\s+(\w+)', template_sql, _re.I))
+        _template_tables = {t for pair in _template_tables for t in pair if t}
+        _template_tables_lower = {t.lower() for t in _template_tables}
+        if _template_tables_lower and not _template_tables_lower.issubset(_schema_tables):
+            return ''  # Template uses tables not in this query's schema; skip
 
         schema_str = self._format_schema(pruned_schema, schema_links)
 

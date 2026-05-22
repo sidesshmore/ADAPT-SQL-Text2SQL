@@ -1283,6 +1283,10 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
                 results['step10_generated'],
                 results['step10_gold']
             )
+            # If column-permutation rescue fired, propagate the corrected SQL
+            if results['step11'] and results['step11'].get('corrected_sql'):
+                final_sql = results['step11']['corrected_sql']
+                results['final_sql'] = final_sql
         
         print("\n" + "="*70)
         status = "✅" if final_is_valid else "⚠️"

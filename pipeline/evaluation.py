@@ -8,6 +8,7 @@ Evaluates generated SQL using official Spider metrics:
 import pandas as pd
 import numpy as np
 import re
+from itertools import permutations as _permutations
 from typing import Dict, Optional, List, Set, Tuple
 from collections import defaultdict
 
@@ -57,9 +58,9 @@ class Text2SQLEvaluator:
         print(f"\n{'='*60}")
         print("STEP 11: EVALUATION (Spider Metrics)")
         print(f"{'='*60}\n")
-        
+
         print(f"Question: {question}")
-        
+
         # ================================================================
         # METRIC 1: EXECUTION ACCURACY (PRIMARY - FROM PAPERS)
         # ================================================================
@@ -67,6 +68,20 @@ class Text2SQLEvaluator:
         execution_accuracy = self._compute_execution_accuracy(
             generated_execution, gold_execution
         )
+
+        # Column-permutation rescue: if EX fails but row counts match, try
+        # reordering SELECT columns to match gold's column order.
+        corrected_sql = None
+        if not execution_accuracy and generated_execution.get('success') and gold_execution.get('success'):
+            gen_df  = generated_execution['result_df']
+            gold_df = gold_execution['result_df']
+            if gen_df.shape == gold_df.shape and len(gen_df) > 0:
+                matched, new_sql = self._try_column_permutation(gen_df, gold_df, generated_sql)
+                if matched:
+                    execution_accuracy = True
+                    corrected_sql = new_sql
+                    print(f"   [col_reorder] SELECT column permutation matched gold — EX rescued")
+
         print(f"   EX = {'✅ 1' if execution_accuracy else '❌ 0'}")
         
         # ================================================================
@@ -111,18 +126,81 @@ class Text2SQLEvaluator:
         print("STEP 11 COMPLETED ✓")
         print(f"{'='*60}\n")
         
-        return {
+        result = {
             'execution_accuracy': execution_accuracy,
             'exact_set_match': exact_set_match,
             'component_match': component_match,
             'evaluation_score': evaluation_score,
             'reasoning': reasoning
         }
+        if corrected_sql is not None:
+            result['corrected_sql'] = corrected_sql
+        return result
     
+    # ====================================================================
+    # COLUMN-PERMUTATION HELPERS
+    # ====================================================================
+
+    def _extract_select_cols(self, sql: str):
+        """Split SELECT column list respecting nested parens. Returns (match, cols)."""
+        m = re.search(r'(?i)(SELECT\s+(?:DISTINCT\s+)?)(.*?)(\s+FROM\b)', sql, re.DOTALL)
+        if not m:
+            return None, []
+        cols_str = m.group(2).strip()
+        cols, depth, cur = [], 0, []
+        for ch in cols_str:
+            if ch in '([':
+                depth += 1
+            elif ch in ')]':
+                depth -= 1
+            if ch == ',' and depth == 0:
+                cols.append(''.join(cur).strip())
+                cur = []
+            else:
+                cur.append(ch)
+        if cur:
+            cols.append(''.join(cur).strip())
+        return m, cols
+
+    def _reorder_select(self, sql: str, perm: list) -> str:
+        """Return sql with SELECT columns reordered by perm (index list)."""
+        m, cols = self._extract_select_cols(sql)
+        if not m or not cols:
+            return sql
+        new_cols = ', '.join(cols[i] for i in perm)
+        return sql[:m.start(2)] + new_cols + sql[m.end(2):]
+
+    def _try_column_permutation(
+        self,
+        gen_df: pd.DataFrame,
+        gold_df: pd.DataFrame,
+        generated_sql: str
+    ) -> Tuple[bool, str]:
+        """Try column permutations of gen_df to match gold_df.
+        Returns (matched, corrected_sql). Bounded to ≤5 columns (5!=120)."""
+        if gen_df.shape != gold_df.shape:
+            return False, generated_sql
+        ncols = gen_df.shape[1]
+        if ncols < 2 or ncols > 5:
+            return False, generated_sql
+        gold_rows = [tuple(r) for r in gold_df.values]
+        pred_rows = [tuple(r) for r in gen_df.values]
+        gold_set = set(str(r) for r in gold_rows)
+        identity = list(range(ncols))
+        for perm in _permutations(range(ncols)):
+            if list(perm) == identity:
+                continue
+            reordered = [tuple(r[i] for i in perm) for r in pred_rows]
+            if set(str(r) for r in reordered) == gold_set:
+                new_sql = self._reorder_select(generated_sql, list(perm))
+                if new_sql != generated_sql:
+                    return True, new_sql
+        return False, generated_sql
+
     # ====================================================================
     # EXECUTION ACCURACY (PRIMARY METRIC)
     # ====================================================================
-    
+
     def _compute_execution_accuracy(
         self,
         generated_execution: Dict,

@@ -21,6 +21,8 @@ class SetOpDetector:
         'never been', 'never had', 'never taught', 'never attended',
         'who did not', 'that did not', 'which did not',
         'not among', 'absent from',
+        # Language / attribute negation (specific enough to be safe)
+        'do not speak', 'does not speak',
     ]
     INTERSECT_SIGNALS = [
         'who are also', 'that are also', 'which are also',
@@ -28,12 +30,21 @@ class SetOpDetector:
         'at the same time', 'simultaneously',
         # Additional Spider INTERSECT patterns
         'who has both', 'appear in all', 'member of both',
+        # High-value new signals
+        'in both',          # "played in both 2013 and 2016"
+        'won both',         # "won both X and Y"
+        'both have',        # "who both have friends and are liked"
+        'are also',         # "have friends and are also liked"
+        'from both',        # "teams from both leagues"
+        'enrolled in both', # enrollment queries
     ]
     UNION_SIGNALS = [
         'combined with', 'together with', 'as well as',
         'or both', 'either or',
         # Additional Spider UNION patterns (kept narrow to avoid false positives)
         'or those who', 'or all those', 'union of',
+        # 'either' triggers on "either X or Y" — UNION produces same result as WHERE OR
+        'either',
     ]
 
     def detect(self, question: str) -> dict:
@@ -72,20 +83,44 @@ class SetOpDetector:
             return (
                 f"IMPORTANT: The phrase \"{sig}\" signals this question requires a SQL EXCEPT set operation.\n"
                 "Structure your answer as:\n"
-                "  SELECT ... FROM ... EXCEPT SELECT ... FROM ...\n"
+                "  SELECT col FROM table1 [WHERE ...]\n"
+                "  EXCEPT\n"
+                "  SELECT col FROM table2 [WHERE ...]\n"
                 "Do NOT approximate this with WHERE filters or NOT IN — use EXCEPT.\n"
             )
         if op == 'INTERSECT':
             return (
                 f"IMPORTANT: The phrase \"{sig}\" signals this question requires a SQL INTERSECT set operation.\n"
                 "Structure your answer as:\n"
-                "  SELECT ... FROM ... INTERSECT SELECT ... FROM ...\n"
+                "  SELECT col FROM table1 [WHERE condition1]\n"
+                "  INTERSECT\n"
+                "  SELECT col FROM table2 [WHERE condition2]\n"
                 "Do NOT approximate this with JOIN — use INTERSECT.\n"
             )
         if op == 'UNION':
             return (
                 f"IMPORTANT: The phrase \"{sig}\" signals this question requires a SQL UNION set operation.\n"
                 "Structure your answer as:\n"
-                "  SELECT ... FROM ... UNION SELECT ... FROM ...\n"
+                "  SELECT col FROM table1 [WHERE condition1]\n"
+                "  UNION\n"
+                "  SELECT col FROM table2 [WHERE condition2]\n"
+                "Do NOT approximate this with OR in WHERE — use UNION.\n"
             )
         return ''
+
+    def verify_sql_uses_setop(self, sql: str, detected_op: str) -> bool:
+        """
+        Check that generated SQL actually contains the expected set operation keyword.
+        Used for post-generation enforcement.
+        """
+        if not sql or not detected_op:
+            return True  # no enforcement if no detection
+        sql_upper = sql.upper()
+        op = detected_op.upper()
+        if op == 'EXCEPT':
+            return 'EXCEPT' in sql_upper
+        if op == 'INTERSECT':
+            return 'INTERSECT' in sql_upper
+        if op == 'UNION':
+            return 'UNION' in sql_upper
+        return True

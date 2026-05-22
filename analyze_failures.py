@@ -69,13 +69,19 @@ def classify_failure(record: dict) -> str:
 def get_complexity(record: dict) -> str:
     r = get_pipeline(record)
     s2 = r.get("step2", {})
-    return s2.get("complexity", s2.get("classification", "UNKNOWN"))
+    val = s2.get("complexity_class", s2.get("complexity", s2.get("classification")))
+    if val is None:
+        return "UNKNOWN"
+    return getattr(val, "value", str(val))
 
 
 def get_strategy(record: dict) -> str:
     r = get_pipeline(record)
     s5 = r.get("step5", {})
-    return s5.get("strategy", s5.get("routing_decision", "UNKNOWN"))
+    val = s5.get("strategy", s5.get("routing_decision"))
+    if val is None:
+        return "UNKNOWN"
+    return getattr(val, "value", str(val)).replace("GenerationStrategy.", "")
 
 
 def sql_features(sql: str) -> list:

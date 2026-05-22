@@ -175,14 +175,71 @@ def bucket_nested_missed(rec: dict) -> bool:
     return gold_nested and not pred_nested
 
 
+def bucket_spurious_cast(rec: dict) -> bool:
+    """Pred wraps columns in CAST() but gold does not — changes NULL/sort behavior."""
+    pred = get_pipeline(rec).get("final_sql", "") or ""
+    gold = get_example(rec).get("query", "") or ""
+    return bool(re.search(r'\bCAST\s*\(', pred, re.IGNORECASE)) and \
+           not bool(re.search(r'\bCAST\s*\(', gold, re.IGNORECASE))
+
+
+def bucket_spurious_limit(rec: dict) -> bool:
+    """Pred has LIMIT but gold does not — over-constrains result set."""
+    pred = get_pipeline(rec).get("final_sql", "") or ""
+    gold = get_example(rec).get("query", "") or ""
+    return "LIMIT" in pred.upper() and "LIMIT" not in gold.upper()
+
+
+def _count_select_cols(sql: str) -> int:
+    """Rough count of columns in the outermost SELECT clause."""
+    m = re.match(r'\s*SELECT\s+(.*?)\s+FROM\b', sql, re.IGNORECASE | re.DOTALL)
+    if not m:
+        return -1
+    cols = m.group(1)
+    # Strip nested parens to avoid counting commas inside functions
+    depth, cleaned, buf = 0, [], []
+    for ch in cols:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        elif depth == 0:
+            buf.append(ch)
+    cleaned = ''.join(buf)
+    return len(cleaned.split(','))
+
+
+def bucket_column_count_mismatch(rec: dict) -> bool:
+    """Pred and gold SELECT a different number of columns."""
+    pred = get_pipeline(rec).get("final_sql", "") or ""
+    gold = get_example(rec).get("query", "") or ""
+    n_pred = _count_select_cols(pred)
+    n_gold = _count_select_cols(gold)
+    return n_pred >= 0 and n_gold >= 0 and n_pred != n_gold
+
+
+def bucket_wrong_aggregation(rec: dict) -> bool:
+    """Pred uses a different aggregate function than gold (COUNT vs SUM vs AVG etc)."""
+    agg_re = re.compile(r'\b(COUNT|SUM|AVG|MIN|MAX)\s*\(', re.IGNORECASE)
+    pred = get_pipeline(rec).get("final_sql", "") or ""
+    gold = get_example(rec).get("query", "") or ""
+    pred_aggs = Counter(m.upper() for m in agg_re.findall(pred))
+    gold_aggs = Counter(m.upper() for m in agg_re.findall(gold))
+    return pred_aggs != gold_aggs
+
+
 BUCKETS = [
     ("missing LIMIT (ORDER BY + superlative)", bucket_missing_limit),
+    ("spurious LIMIT (pred has, gold lacks)",  bucket_spurious_limit),
     ("over-joining (more tables than gold)",   bucket_over_join),
     ("missing GROUP BY (gold has, pred lacks)", bucket_missing_group_by),
     ("spurious GROUP BY (pred has, gold lacks)", bucket_spurious_group_by),
     ("set-op mismatch (EXCEPT/INTERSECT/UNION)", bucket_set_op_mismatch),
     ("missing HAVING (gold has, pred lacks)",   bucket_missing_having),
     ("nested query missed (gold nested, pred flat)", bucket_nested_missed),
+    ("spurious CAST (pred casts, gold doesn't)", bucket_spurious_cast),
+    ("column count mismatch (SELECT arity)",   bucket_column_count_mismatch),
+    ("wrong aggregation (COUNT/SUM/AVG/MIN/MAX)", bucket_wrong_aggregation),
 ]
 
 

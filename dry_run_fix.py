@@ -28,6 +28,11 @@ SUPERLATIVE_WORDS = {
     "top", "bottom", "first", "last", "oldest", "youngest",
     "cheapest", "expensive", "tallest", "shortest", "longest",
     "max", "min", "earliest", "latest",
+    # Common superlatives missing from original set
+    "biggest", "smallest", "heaviest", "lightest", "fastest", "slowest",
+    "richest", "poorest", "busiest", "closest", "farthest", "nearest",
+    "highest", "deepest", "widest", "narrowest", "hottest", "coldest",
+    "newest", "oldest", "latest", "earliest", "highest-rated", "lowest-rated",
 }
 NUMBER_WORDS = {"one", "single"}
 

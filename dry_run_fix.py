@@ -29,10 +29,13 @@ SUPERLATIVE_WORDS = {
     "cheapest", "expensive", "tallest", "shortest", "longest",
     "max", "min", "earliest", "latest",
     # Common superlatives missing from original set
-    "biggest", "smallest", "heaviest", "lightest", "fastest", "slowest",
+    "biggest", "heaviest", "lightest", "fastest", "slowest",
     "richest", "poorest", "busiest", "closest", "farthest", "nearest",
-    "highest", "deepest", "widest", "narrowest", "hottest", "coldest",
-    "newest", "oldest", "latest", "earliest", "highest-rated", "lowest-rated",
+    "deepest", "widest", "narrowest", "hottest", "coldest",
+    "newest", "highest-rated", "lowest-rated",
+    # Implicit ranking / predominance words that imply LIMIT 1
+    "predominantly", "mainly", "mostly", "primarily", "chiefly",
+    "majority", "dominant", "leading", "principal",
 }
 NUMBER_WORDS = {"one", "single"}
 

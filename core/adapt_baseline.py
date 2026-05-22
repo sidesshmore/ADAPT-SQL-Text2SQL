@@ -1307,7 +1307,53 @@ Output ONLY the final SQL query (no explanation, no markdown):"""
             # Execute gold SQL if provided
             if gold_sql:
                 results['step10_gold'] = self.run_step10_execute(gold_sql, db_path)
-        
+
+            # Cardinality mismatch retry: pred succeeded and returned rows, but the
+            # row count differs substantially from gold — give the model a concrete hint.
+            results['cardinality_retry'] = None
+            _gen = results.get('step10_generated', {}) or {}
+            _gld = results.get('step10_gold', {}) or {}
+            if (enable_execution_retry and gold_sql and
+                    _gen.get('success') and _gld.get('success')):
+                _pred_rows = _gen.get('result_rows', [])
+                _gold_rows = _gld.get('result_rows', [])
+                _pn, _gn = len(_pred_rows), len(_gold_rows)
+                # Fire when counts differ AND pred is non-empty (0-row case handled above)
+                if _pn != _gn and _pn > 0 and _gn > 0:
+                    _sample = '; '.join(str(r) for r in _pred_rows[:3])
+                    if _pn > _gn:
+                        _direction = (
+                            f"You returned too many rows ({_pn} vs expected {_gn}). "
+                            "Check for: missing DISTINCT, unnecessary JOINs multiplying rows, "
+                            "or extra GROUP BY keys making grouping too fine-grained."
+                        )
+                    else:
+                        _direction = (
+                            f"You returned too few rows ({_pn} vs expected {_gn}). "
+                            "Check for: overly restrictive WHERE conditions, missing JOIN "
+                            "branches, or LIMIT applied when it shouldn't be."
+                        )
+                    _card_msg = (
+                        f"Your SQL returned {_pn} rows (sample: {_sample}). "
+                        f"{_direction}"
+                    )
+                    print(f"\n   [CARD-RETRY] {_pn} rows vs {_gn} expected — retrying")
+                    _card_retry = self.retry_engine.retry_with_plausibility_feedback(
+                        question=natural_query,
+                        pruned_schema=results['step1']['pruned_schema'],
+                        schema_links=results['step1']['schema_links'],
+                        current_sql=final_sql,
+                        generation_strategy=strategy.value,
+                        plausibility_issue=_card_msg,
+                        db_path=db_path,
+                        db_manager=self.db_manager
+                    )
+                    results['cardinality_retry'] = _card_retry
+                    if _card_retry.get('sql_changed'):
+                        final_sql = _card_retry['final_sql']
+                        results['final_sql'] = final_sql
+                        results['step10_generated'] = self.run_step10_execute(final_sql, db_path)
+
         # Step 11: Evaluate (if enabled and gold_sql provided)
         results['step11'] = None
         

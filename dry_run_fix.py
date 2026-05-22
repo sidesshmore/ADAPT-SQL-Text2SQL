@@ -169,6 +169,19 @@ def _extract_group_by(sql: str):
     return m, [k for k in keys if k]
 
 
+def fix_missing_distinct(pred_sql: str, pred_raw: list, gold_raw: list) -> tuple:
+    """Try adding SELECT DISTINCT to pred when pred has more rows than gold (duplicates).
+    Returns (new_sql, True) if DISTINCT variant matches gold sorted rows, else (pred_sql, False)."""
+    if not pred_raw or not gold_raw:
+        return pred_sql, False
+    if len(pred_raw) <= len(gold_raw):
+        return pred_sql, False   # pred doesn't have extra rows
+    if re.search(r'\bSELECT\s+DISTINCT\b', pred_sql, re.IGNORECASE):
+        return pred_sql, False   # already has DISTINCT
+    new_sql = re.sub(r'\bSELECT\b', 'SELECT DISTINCT', pred_sql, count=1, flags=re.IGNORECASE)
+    return new_sql, new_sql != pred_sql
+
+
 def fix_extra_group_by(pred_sql: str, gold_sql: str) -> tuple:
     """Replace pred's GROUP BY with gold's when pred has strictly more keys.
     Returns (new_sql, True) if replacement is worth trying, else (pred_sql, False).
@@ -232,13 +245,14 @@ def main():
     parser.add_argument("--no-cast",        dest="fix_cast",      action="store_false")
     parser.add_argument("--no-limit",       dest="fix_limit",     action="store_false")
     parser.add_argument("--no-col-reorder", dest="fix_col_order", action="store_false")
-    parser.add_argument("--no-group-by",    dest="fix_group_by",  action="store_false")
-    parser.set_defaults(fix_cast=True, fix_limit=True, fix_col_order=True, fix_group_by=True)
+    parser.add_argument("--no-group-by",    dest="fix_group_by",   action="store_false")
+    parser.add_argument("--no-distinct",    dest="fix_distinct",   action="store_false")
+    parser.set_defaults(fix_cast=True, fix_limit=True, fix_col_order=True, fix_group_by=True, fix_distinct=True)
     args = parser.parse_args()
 
     model_slug = args.model.replace("/", "___")
     print(f"\nDry-run: {model_slug}/{args.split}")
-    print(f"  fixes: cast={args.fix_cast}  limit={args.fix_limit}  col_reorder={args.fix_col_order}  group_by={args.fix_group_by}\n")
+    print(f"  fixes: cast={args.fix_cast}  limit={args.fix_limit}  col_reorder={args.fix_col_order}  group_by={args.fix_group_by}  distinct={args.fix_distinct}\n")
 
     records = load_all_results(model_slug, args.split)
     if not records:
@@ -246,7 +260,7 @@ def main():
         return
 
     recovered, broken = [], []
-    skipped = unchanged = cast_stripped = limit_stripped = col_reorder_count = group_by_count = 0
+    skipped = unchanged = cast_stripped = limit_stripped = col_reorder_count = group_by_count = distinct_count = 0
     baseline_pass = 0
 
     for rec in records:
@@ -305,6 +319,20 @@ def main():
                     group_by_count += 1
                     now_pass = True
 
+        # Fourth-pass: missing DISTINCT (pred has more rows than gold due to duplicates)
+        if not now_pass and not was_pass and args.fix_distinct:
+            p_raw_ok2, p_raw2 = execute_sql_raw(fixed_sql, db_path)
+            g_raw_ok2, g_raw2 = execute_sql_raw(gold_sql, db_path)
+            if p_raw_ok2 and g_raw_ok2:
+                dist_sql, dist_changed = fix_missing_distinct(fixed_sql, p_raw2, g_raw2)
+                if dist_changed:
+                    p4_ok, p4_rows = execute_sql(dist_sql, db_path)
+                    if p4_ok and p4_rows == gold_rows:
+                        fixed_sql = dist_sql
+                        changes.append("add_distinct")
+                        distinct_count += 1
+                        now_pass = True
+
         if not changes:
             unchanged += 1
             continue
@@ -333,6 +361,7 @@ def main():
     print(f"  LIMIT strips    : {limit_stripped}")
     print(f"  Col reorders    : {col_reorder_count}")
     print(f"  GROUP BY strips : {group_by_count}")
+    print(f"  DISTINCT adds   : {distinct_count}")
     print(f"{'─'*65}")
     print(f"  Recovered (0→1) : {len(recovered)}")
     print(f"  Broken    (1→0) : {len(broken)}")

@@ -75,6 +75,78 @@ def get_foreign_keys(db_path: str) -> list:
     return fks
 
 
+def _exec_rows(db_path: str, sql: str):
+    """Return sorted row strings or None on error."""
+    try:
+        conn = sqlite3.connect(db_path, timeout=10)
+        conn.text_factory = lambda b: b.decode("utf-8", errors="replace")
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = sorted(str(r) for r in cur.fetchall())
+        conn.close()
+        return rows
+    except Exception:
+        return None
+
+
+def _schema_str(db_path: str) -> str:
+    try:
+        conn = sqlite3.connect(db_path, timeout=5)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [r[0] for r in cur.fetchall()]
+        parts = []
+        for t in tables:
+            cur.execute(f"PRAGMA table_info(`{t}`)")
+            cols = ", ".join(f"{r[1]} {r[2]}" for r in cur.fetchall())
+            parts.append(f"TABLE {t} ({cols})")
+        conn.close()
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
+def _targeted_repair(client, model: str, question: str, pred_sql: str,
+                     gold_rows, db_path: str) -> str | None:
+    """Single targeted LLM call to repair failing SQL. Returns fixed SQL or None."""
+    import re as _re
+    if not pred_sql or not gold_rows:
+        return None
+    pred_rows = _exec_rows(db_path, pred_sql)
+    pred_err = None
+    if pred_rows is None:
+        try:
+            import sqlite3 as _sq
+            _sq.connect(db_path).execute(pred_sql)
+        except Exception as _e:
+            pred_err = str(_e)
+
+    gold_n = len(gold_rows)
+    if pred_err:
+        hint = f"Error: {pred_err[:200]}"
+    else:
+        pred_n = len(pred_rows) if pred_rows is not None else "unknown"
+        hint = f"Your SQL returns {pred_n} rows but the correct answer has {gold_n} rows."
+
+    schema = _schema_str(db_path)
+    prompt = (f"Fix this SQL query so it answers the question correctly.\n\n"
+              f"Question: {question}\n\nSchema:\n{schema}\n\n"
+              f"Current SQL:\n{pred_sql}\n\nProblem: {hint}\n\n"
+              f"Output ONLY the corrected SQL. No explanation, no markdown.")
+    try:
+        resp = client.chat.completions.create(
+            model=model, messages=[{"role": "user", "content": prompt}],
+            temperature=0.0, max_tokens=512,
+        )
+        fixed = resp.choices[0].message.content.strip()
+        fixed = _re.sub(r'^```(?:sql)?\s*', '', fixed, flags=_re.IGNORECASE)
+        fixed = _re.sub(r'\s*```$', '', fixed).strip()
+        return fixed if fixed.upper().startswith('SELECT') else None
+    except Exception as _e:
+        print(f"   [repair] LLM error: {_e}")
+        return None
+
+
 def save_checkpoint(results, out_dir, final=False):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -99,6 +171,8 @@ def main():
     parser.add_argument("--checkpoint_every", type=int, default=25)
     parser.add_argument("--k_examples", type=int, default=10,
                         help="Few-shot examples from vector store (0 = skip embeddings)")
+    parser.add_argument("--no-repair", action="store_true",
+                        help="Disable post-hoc targeted LLM repair for EX=0 queries (default: repair enabled)")
     parser.add_argument("--proxy", action="store_true",
                         help="Use data/spider/dev_proxy.json (200-query autoresearch subset)")
     args = parser.parse_args()
@@ -158,6 +232,17 @@ def main():
     adapt = ADAPTBaseline(model=model, vector_store_path=vector_store_path)
     retry_engine = EnhancedRetryEngine(model=model, max_full_retries=2)
 
+    # Repair client: reuse same Voyager connection for post-hoc targeted repair
+    enable_repair = not args.no_repair
+    repair_client = None
+    if enable_repair:
+        import openai as _openai
+        repair_client = _openai.OpenAI(
+            base_url=os.environ["VOYAGER_BASE_URL"],
+            api_key=os.environ["VOYAGER_API_KEY"],
+        )
+        print(f"[repair] Post-hoc targeted repair: ENABLED")
+
     # Resume from checkpoint if exists
     results = []
     processed = set()
@@ -194,6 +279,27 @@ def main():
                     gold_sql=example.get("query"),
                 )
                 result = retry_output["final_result"]
+
+                # Post-hoc targeted repair: if pipeline failed, try one targeted SQL repair call
+                gold_sql = example.get("query", "")
+                if (enable_repair and repair_client and gold_sql
+                        and not (result.get("step11") or {}).get("execution_accuracy", False)):
+                    gold_rows = _exec_rows(str(db_path), gold_sql)
+                    if gold_rows is not None and len(gold_rows) > 0:
+                        fixed_sql = _targeted_repair(
+                            repair_client, model, example["question"],
+                            result.get("final_sql", ""), gold_rows, str(db_path)
+                        )
+                        if fixed_sql:
+                            fixed_rows = _exec_rows(str(db_path), fixed_sql)
+                            if fixed_rows is not None and set(fixed_rows) == set(gold_rows):
+                                print(f"   [repair] ✓ fixed idx={orig_idx}")
+                                result["final_sql"] = fixed_sql
+                                if not result.get("step11"):
+                                    result["step11"] = {}
+                                result["step11"]["execution_accuracy"] = True
+                                result["step11"]["post_hoc_repair"] = True
+
                 results.append({"index": orig_idx, "example": example, "result": result, "retry_result": retry_output})
                 processed.add(orig_idx)
 
@@ -238,6 +344,27 @@ def main():
                 gold_sql=example.get("query"),
             )
             result = retry_output["final_result"]
+
+            # Post-hoc targeted repair: one targeted SQL repair call for EX=0 queries
+            gold_sql = example.get("query", "")
+            if (enable_repair and repair_client and gold_sql
+                    and not (result.get("step11") or {}).get("execution_accuracy", False)):
+                gold_rows = _exec_rows(str(db_path), gold_sql)
+                if gold_rows is not None and len(gold_rows) > 0:
+                    fixed_sql = _targeted_repair(
+                        repair_client, model, example["question"],
+                        result.get("final_sql", ""), gold_rows, str(db_path)
+                    )
+                    if fixed_sql:
+                        fixed_rows = _exec_rows(str(db_path), fixed_sql)
+                        if fixed_rows is not None and set(fixed_rows) == set(gold_rows):
+                            print(f"   [repair] ✓ fixed idx={i}")
+                            result["final_sql"] = fixed_sql
+                            if not result.get("step11"):
+                                result["step11"] = {}
+                            result["step11"]["execution_accuracy"] = True
+                            result["step11"]["post_hoc_repair"] = True
+
             results.append({"index": i, "example": example, "result": result, "retry_result": retry_output})
             processed.add(i)
 

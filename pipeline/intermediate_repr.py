@@ -284,27 +284,32 @@ class IntermediateRepresentationGenerator:
         set_op_hint: str = ''
     ) -> List[str]:
         """Generate n additional SQL candidates at higher temperatures for diversity."""
+        import time as _time
         temps = [0.4, 0.7][:n]
         candidates = []
         for temp in temps:
-            try:
-                best_examples = self._select_best_examples(selected_examples, n=5)
-                gt_patterns = self._analyze_ground_truth_patterns(best_examples)
-                natsql_result = self._generate_natsql_universal(
-                    question, pruned_schema, schema_links, best_examples, gt_patterns,
-                    set_op_hint=set_op_hint, temperature=temp
-                )
-                # Skip if NatSQL generation failed (returns error comment)
-                if natsql_result['natsql'].strip().startswith('--'):
-                    continue
-                sql = self._natsql_to_normalized_sql(
-                    natsql_result['natsql'], natsql_result['structure'],
-                    pruned_schema, schema_links, best_examples, gt_patterns,
-                    original_question=question
-                )
-                candidates.append(sql)
-            except Exception:
-                pass
+            for _attempt in range(3):
+                try:
+                    best_examples = self._select_best_examples(selected_examples, n=5)
+                    gt_patterns = self._analyze_ground_truth_patterns(best_examples)
+                    natsql_result = self._generate_natsql_universal(
+                        question, pruned_schema, schema_links, best_examples, gt_patterns,
+                        set_op_hint=set_op_hint, temperature=temp
+                    )
+                    if natsql_result['natsql'].strip().startswith('--'):
+                        break
+                    sql = self._natsql_to_normalized_sql(
+                        natsql_result['natsql'], natsql_result['structure'],
+                        pruned_schema, schema_links, best_examples, gt_patterns,
+                        original_question=question
+                    )
+                    candidates.append(sql)
+                    break
+                except Exception as _e:
+                    if _attempt < 2:
+                        _time.sleep(2 ** _attempt)
+                    else:
+                        print(f"   ⚠️  generate_candidates temp={temp} failed after 3 attempts: {type(_e).__name__}: {_e}")
         return candidates
 
     def generate_skeleton_first(

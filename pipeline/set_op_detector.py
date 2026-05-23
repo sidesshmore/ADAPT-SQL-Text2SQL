@@ -62,6 +62,11 @@ class SetOpDetector:
             if sig in q:
                 return {'op': 'INTERSECT', 'confidence': 0.75, 'signal': sig}
 
+        # "at least X ... and more than Y" → two HAVING conditions → INTERSECT
+        # e.g. "produce at least 2 models and more than 3 cars"
+        if 'at least' in q and ('more than' in q or 'greater than' in q):
+            return {'op': 'INTERSECT', 'confidence': 0.72, 'signal': 'at least...more than'}
+
         for sig in self.UNION_SIGNALS:
             if sig in q:
                 return {'op': 'UNION', 'confidence': 0.65, 'signal': sig}

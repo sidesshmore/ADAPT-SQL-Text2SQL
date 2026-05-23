@@ -106,21 +106,27 @@ class FewShotGenerator:
         set_op_hint: str = ''
     ) -> List[str]:
         """Generate n additional SQL candidates at higher temperatures for diversity."""
+        import time as _time
         temps = [0.4, 0.7][:n]
         candidates = []
         for temp in temps:
-            try:
-                best_examples = self._select_best_examples(selected_examples, n=5)
-                natsql = self._generate_natsql_intermediate(
-                    question, pruned_schema, schema_links, best_examples,
-                    set_op_hint=set_op_hint, temperature=temp
-                )
-                if natsql.strip().startswith('--'):
-                    continue  # NatSQL generation failed
-                sql = self._natsql_to_sql(natsql, pruned_schema, schema_links, best_examples)
-                candidates.append(self._clean_sql(sql))
-            except Exception:
-                pass
+            for _attempt in range(3):
+                try:
+                    best_examples = self._select_best_examples(selected_examples, n=5)
+                    natsql = self._generate_natsql_intermediate(
+                        question, pruned_schema, schema_links, best_examples,
+                        set_op_hint=set_op_hint, temperature=temp
+                    )
+                    if natsql.strip().startswith('--'):
+                        break
+                    sql = self._natsql_to_sql(natsql, pruned_schema, schema_links, best_examples)
+                    candidates.append(self._clean_sql(sql))
+                    break
+                except Exception as _e:
+                    if _attempt < 2:
+                        _time.sleep(2 ** _attempt)
+                    else:
+                        print(f"   ⚠️  few_shot candidates temp={temp} failed: {type(_e).__name__}: {_e}")
         return candidates
 
     def _generate_natsql_intermediate(
